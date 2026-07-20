@@ -102,10 +102,12 @@
         const [currentChannelId, setCurrentChannelId] = useState(null);
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
         const [logs, setLogs] = useState([]);
+        const [editNoteUrl, setEditNoteUrl] = useState(null);
+        const [editNoteText, setEditNoteText] = useState('');
 
         // Persistent Filters & Sort
         const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
-        const [filters, setFilters] = useState(prefs.filters || { datetime: '', type: '', name: '', url: '', status: '' });
+        const [filters, setFilters] = useState(prefs.filters || { datetime: '', type: '', name: '', url: '', status: '', note: '' });
 
         const scale = sliderToScale(scaleSlider);
         const log = msg => setLogs(p => [...p.slice(-19), msg]);
@@ -232,12 +234,14 @@
                 } while (nextPageToken);
 
                 // --- САМЫЙ ВАЖНЫЙ БЛОК: ЗАЩИТА ТВОИХ ОТМЕТОК ---
-                // Создаем быструю карту всех твоих статусов из кэша
+                // Создаем быструю карту всех твоих статусов и заметок из кэша
                 const statusMap = {};
+                const noteMap = {};
                 cachedData.forEach(v => {
                     if (v.status && v.status !== 'unwatched') {
                         statusMap[v.url] = v.status;
                     }
+                    noteMap[v.url] = v.note || '';
                 });
 
                 // Присваиваем статусы новым или обновленным видео
@@ -255,7 +259,8 @@
                         type,
                         name: title,
                         url: videoUrl,
-                        status: statusMap[videoUrl] || 'unwatched' // <-- Бережное восстановление твоих отметок
+                        status: statusMap[videoUrl] || 'unwatched', // <-- Бережное восстановление твоих отметок
+                        note: noteMap[videoUrl] || ''
                     };
                 });
 
@@ -295,6 +300,15 @@
             }
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
+
+        const saveNote = (url, text) => {
+            if (!currentChannelId || !videos) return;
+            const next = videos.map(v => (v.url === url ? { ...v, note: text || '' } : v));
+            setVideos(next);
+            setCache(currentChannelId, next);
+            setEditNoteUrl(null);
+            setEditNoteText('');
+        };
 
         // --- Status Toggle ---
         const toggleStatus = (url) => {
@@ -416,6 +430,7 @@
                 <div className="flex flex-col gap-1.5">
                     <button
                         onClick={() => requestSort(columnKey)}
+                        title={`Sort by ${label}`}
                         className={`flex items-center gap-1 font-semibold uppercase tracking-wider text-left transition-colors hover:text-emerald-500 ${sortConfig.key === columnKey ? 'text-emerald-500' : mt}`}
                     >
                         {label}
@@ -426,6 +441,7 @@
                     <input
                         type="text"
                         placeholder="Filter..."
+                        title={`Filter by ${label}`}
                         value={filters[columnKey]}
                         onChange={(e) => handleFilterChange(columnKey, e.target.value)}
                         className={`w-full px-2 py-1 text-[10px] rounded border focus:outline-none focus:border-emerald-500 transition-colors ${inpFilter}`}
@@ -442,9 +458,10 @@
                         <div className="flex flex-wrap items-center gap-3 py-3">
                             <button
                                 onClick={() => setShowSettings(!showSettings)}
-                                className={`flex-shrink-0 text-xs px-2 py-1.5 rounded transition-colors ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600')}`}
+                                title="Settings"
+                                className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600')}`}
                             >
-                                ⚙️ Settings
+                                ⚙️
                             </button>
                             <div className="flex gap-1.5 flex-shrink-0">
                                 <div className={`h-2.5 w-2.5 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "API Key Configured" : "API Key Missing"}/>
@@ -453,6 +470,7 @@
                             <div className="flex-1 min-w-[200px]">
                                 <input
                                     type="text"
+                                    title="Channel link or @handle"
                                     value={channelUrl}
                                     onChange={e => setChannelUrl(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && handleFetch('load')}
@@ -476,7 +494,7 @@
                                 📥
                             </button>
 
-                            <button onClick={() => setDark(!dark)} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
+                            <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
                                 {dark ? '☀' : '🌙'}
                             </button>
                         </div>
@@ -590,9 +608,10 @@
                                         <tr className={dark ? 'bg-slate-900/50' : 'bg-slate-50'}>
                                             <Th label="Datetime" columnKey="datetime" width="w-44" />
                                             <Th label="Type" columnKey="type" width="w-28" />
-                                            <Th label="Status" columnKey="status" width="w-36" />
                                             <Th label="Name" columnKey="name" />
                                             <Th label="URL" columnKey="url" width="w-24" />
+                                            <Th label="Status" columnKey="status" width="w-36" />
+                                            <Th label="Note" columnKey="note" width="w-48" />
                                         </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
@@ -608,6 +627,14 @@
                                                             {v.type}
                                                         </span>
                                                     </td>
+                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
+                                                        {v.name}
+                                                    </td>
+                                                    <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
+                                                            Open ↗
+                                                        </a>
+                                                    </td>
                                                     <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <button
                                                             onClick={() => toggleStatus(v.url)}
@@ -617,20 +644,44 @@
                                                             {statusMeta.label}
                                                         </button>
                                                     </td>
-                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
-                                                        {v.name}
-                                                    </td>
-                                                    <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
-                                                            Open ↗
-                                                        </a>
+                                                    <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        {editNoteUrl === v.url ? (
+                                                            <input
+                                                                type="text"
+                                                                autoFocus
+                                                                value={editNoteText}
+                                                                onChange={e => setEditNoteText(e.target.value)}
+                                                                onBlur={() => saveNote(v.url, editNoteText)}
+                                                                onKeyDown={e => { if (e.key === 'Enter') saveNote(v.url, editNoteText); if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
+                                                                className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors ${inpFilter}`}
+                                                                title="Edit note"
+                                                            />
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }}
+                                                                title={v.note ? v.note : 'Add note'}
+                                                                className="text-left w-full truncate text-[11px] px-2 py-1 rounded border hover:bg-emerald-50 hover:border-emerald-300 dark:hover:bg-emerald-900/30 dark:hover:border-emerald-700 transition-colors"
+                                                            >
+                                                                <span className="inline-flex items-center gap-1">
+                                                                    {(v.note && v.note.trim()) ? (
+                                                                        <span className={`${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                                                                            {v.note.length > 30 ? v.note.slice(0, 30) + '…' : v.note}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className={`${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                                                                            ✏️ Add note
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                            </button>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             );
                                         })}
                                         {processedVideos.length === 0 && (
                                             <tr>
-                                                <td colSpan="5" className={`text-center py-12 ${mt}`}>No data matched the current column filters.</td>
+                                                <td colSpan="6" className={`text-center py-12 ${mt}`}>No data matched the current column filters.</td>
                                             </tr>
                                         )}
                                         </tbody>
@@ -640,8 +691,8 @@
                                 {/* Mobile Optimised Stack Cards */}
                                 <div className="block md:hidden p-4 space-y-3">
                                     <div className="pb-2 flex gap-2 overflow-x-auto">
-                                        <input type="text" placeholder="Filter Name..." value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-[120px] px-3 py-2 text-xs rounded border ${inpFilter}`} />
-                                        <input type="text" placeholder="Filter Status..." value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                        <input type="text" placeholder="Filter Name..." title="Filter by Name" value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-[120px] px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                        <input type="text" placeholder="Filter Status..." title="Filter by Status" value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                     </div>
                                     {processedVideos.map((v, i) => {
                                         const statusMeta = getStatusDisplay(v.status || 'unwatched');
@@ -654,8 +705,15 @@
                                                     </div>
                                                 </div>
                                                 <h4 className={`font-semibold text-sm ${t1} line-clamp-2`}>{v.name}</h4>
+                                                {v.note ? (
+                                                    <div className="text-[11px] text-slate-400 truncate">
+                                                        📝 {v.note.length > 40 ? v.note.slice(0, 40) + '…' : v.note}
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }} className="text-[11px] text-slate-400 hover:text-emerald-500 transition-colors" title="Add note">✏️ Add note</button>
+                                                )}
                                                 <div className="pt-2 flex items-center justify-between gap-2">
-                                                    <button onClick={() => toggleStatus(v.url)} className={`flex-1 text-center text-xs py-2 rounded-lg font-bold border transition-all ${statusMeta.cls}`}>
+                                                    <button onClick={() => toggleStatus(v.url)} title="Toggle watch status" className={`flex-1 text-center text-xs py-2 rounded-lg font-bold border transition-all ${statusMeta.cls}`}>
                                                         {statusMeta.label}
                                                     </button>
                                                     <a href={v.url} target="_blank" rel="noreferrer" className="flex-1 text-center bg-emerald-500 hover:bg-emerald-400 text-white text-xs py-2 rounded-lg font-bold transition-all">
