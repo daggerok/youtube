@@ -28,12 +28,12 @@
         .dark-scroll::-webkit-scrollbar-track{background:transparent}
         .dark-scroll::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
         .dark-scroll{scrollbar-width:thin;scrollbar-color:#334155 transparent}
-        
+
         .light-scroll::-webkit-scrollbar{height:6px;width:6px}
         .light-scroll::-webkit-scrollbar-track{background:transparent}
         .light-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
         .light-scroll{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
-        
+
         .console-wrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease-out,opacity .25s ease-out;opacity:0}
         .console-wrap.open{grid-template-rows:1fr;opacity:1}
         .console-inner{overflow:hidden}
@@ -47,7 +47,7 @@
         html:not(.dark) input[type=range].scale-slider{background:#cbd5e1}
         html:not(.dark) input[type=range].scale-slider::-webkit-slider-thumb{background:#059669}
         html:not(.dark) input[type=range].scale-slider::-moz-range-thumb{background:#059669}
-    
+
         html.dark, html.dark body { background:#020617 !important; color:#f1f5f9 !important; color-scheme: dark; }
         html.dark table { color:#e2e8f0; }
         html.dark table td { color:inherit; }
@@ -58,13 +58,13 @@
 <div id="root"></div>
 
 <script type="text/babel" data-presets="react">
-    const { useState, useEffect, useMemo, useRef } = React;
+    const { useState, useEffect, useMemo } = React;
 
     const LS_P = 'yt-dashboard-prefs';
     const lp = () => { try { return JSON.parse(localStorage.getItem(LS_P)) || {}; } catch { return {}; } };
     const sp = p => { try { localStorage.setItem(LS_P, JSON.stringify(p)); } catch {} };
 
-    const sliderToScale = v => 0.7 + (v / 100) * 0.8; 
+    const sliderToScale = v => 0.7 + (v / 100) * 0.8;
     const DEFAULT_SCALE_SLIDER = 50;
 
     const Pill = ({ value, options, onChange, dark }) => (
@@ -73,7 +73,7 @@
                 const k = typeof opt === 'string' ? opt : opt.k;
                 const l = typeof opt === 'string' ? opt : opt.l;
                 return (
-                    <button key={k} onClick={() => onChange(k)} 
+                    <button key={k} onClick={() => onChange(k)}
                             className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${value === k ? 'bg-emerald-500 text-white shadow-sm' : dark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>
                         {l}
                     </button>
@@ -135,12 +135,11 @@
             log(`🔍 Resolving channel handle: @${handle}`);
 
             try {
-                // Step 1: Get Channel ID by handle name using search endpoint
                 const channelSearchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handle)}&key=${apiKey}`;
                 const chRes = await fetch(channelSearchUrl);
-                if (!chRes.ok) throw new Error(`Failed to resolve channel handle. Status: ${chRes.status}`);
+                if (!chRes.ok) throw new Error(`API Error (Handle Resolution). Status: ${chRes.status}`);
                 const chData = await chRes.json();
-                
+
                 if (!chData.items || chData.items.length === 0) {
                     throw new Error(`No channel found for handle: @${handle}`);
                 }
@@ -149,21 +148,18 @@
                 const channelTitle = chData.items[0].snippet.title;
                 log(`✅ Found Channel: "${channelTitle}" (ID: ${channelId})`);
 
-                // Step 2: Fetch recent videos from channel
-                log(`📥 Fetching media assets from YouTube Data API...`);
+                log(`📥 Querying YouTube Data API engine...`);
                 const searchVideosUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}`;
                 const vRes = await fetch(searchVideosUrl);
-                if (!vRes.ok) throw new Error(`YouTube API Error. Status: ${vRes.status}`);
+                if (!vRes.ok) throw new Error(`YouTube API Fetch Error. Status: ${vRes.status}`);
                 const vData = await vRes.json();
 
-                if (!vData.items) throw new Error("No data structure returned from YouTube API.");
+                if (!vData.items) throw new Error("Invalid API response format structure.");
 
                 const processed = vData.items.map(item => {
                     const title = item.snippet.title;
                     const isLive = item.snippet.liveBroadcastContent === 'live' || item.snippet.liveBroadcastContent === 'upcoming';
-                    
-                    // Хак определения Shorts на чистом API без дополнительных квот: проверка структуры заголовка или флага
-                    // По умолчанию помечаем как Video/Live, Shorts можно определять опционально.
+
                     let type = isLive ? 'Live' : 'Video';
                     if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
                         type = 'Shorts';
@@ -177,10 +173,10 @@
                     };
                 });
 
-                log(`✅ Successfully loaded ${processed.length} assets.`);
+                log(`✅ Loaded ${processed.length} entries successfully.`);
                 setVideos(processed);
             } catch (err) {
-                log(`❌ Error: ${err.message}`);
+                log(`❌ Exception: ${err.message}`);
                 setError(err.message);
             } finally {
                 setLoading(false);
@@ -226,30 +222,30 @@
                 <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md border-b ${bdr}`}>
                     <div className="px-4 xl:px-8">
                         <div className="flex items-center gap-3 py-3">
-                            <button 
-                                onClick={() => setShowSettings(!showSettings)} 
+                            <button
+                                onClick={() => setShowSettings(!showSettings)}
                                 className={`flex-shrink-0 text-xs px-2 py-1.5 rounded transition-colors ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600')}`}
                                 title="Toggle API Settings Guide"
                             >
                                 ⚙️ Settings
                             </button>
                             <div className="flex gap-1.5 flex-shrink-0">
-                                <div className={`h-2.5 w-2.5 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "API Key Present" : "API Key Missing"}/>
+                                <div className={`h-2.5 w-2.5 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "API Key Configured" : "API Key Missing"}/>
                             </div>
-                            
+
                             <div className="flex-1 min-w-0">
-                                <input 
-                                    type="text" 
-                                    value={channelUrl} 
+                                <input
+                                    type="text"
+                                    value={channelUrl}
                                     onChange={e => setChannelUrl(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && handleFetch()}
-                                    placeholder="YouTube Channel link or handle (@InnerCircleTrader)..." 
+                                    placeholder="YouTube Channel link or handle (@InnerCircleTrader)..."
                                     className={`w-full ${inp} border rounded-lg px-3 py-2 font-mono font-medium text-sm focus:outline-none focus:border-emerald-500 transition-colors`}
                                 />
                             </div>
 
-                            <button 
-                                onClick={handleFetch} 
+                            <button
+                                onClick={handleFetch}
                                 disabled={loading}
                                 className="flex-shrink-0 flex items-center bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-40"
                             >
@@ -271,7 +267,7 @@
                             )}
                         </div>
 
-                        {/* Console Log Wrapper */}
+                        {/* Console Logs Wrapper */}
                         <div className={`console-wrap ${logs.length > 0 ? 'open' : ''}`}>
                             <div className="console-inner">
                                 <div className="pb-2 -mt-1">
@@ -289,26 +285,42 @@
                     </div>
                 </div>
 
-                {/* Main View Area */}
+                {/* Content Workspace */}
                 <div className="px-4 xl:px-8 py-6">
-                    {/* Settings & Guideline Drawer */}
+                    {/* Multi-scenario Setup Guideline */}
                     {showSettings && (
-                        <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-4 animate-fade-in`}>
-                            <h3 className="font-bold text-base flex items-center gap-2">🔑 Google Credentials Setup Guide</h3>
-                            <div className="space-y-2 text-xs text-slate-400">
-                                <p>To use this dashboard fully client-side without a backend proxy, you need a standard Google Cloud API key:</p>
-                                <ol className="list-decimal pl-5 space-y-1">
-                                    <li>Go to the <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-emerald-500 hover:underline">Google Cloud Console</a>.</li>
-                                    <li>Create a new project or select an existing one.</li>
-                                    <li>Navigate to <strong>API & Services &gt; Library</strong>.</li>
-                                    <li>Search for <strong className={t1}>"YouTube Data API v3"</strong> and click <strong class="text-emerald-500">Enable</strong> (No active OAuth scopes or spreadsheets scopes are required for basic content querying!).</li>
-                                    <li>Go to <strong>Credentials &gt; Create Credentials &gt; API Key</strong>.</li>
-                                    <li>Copy the generated key and insert it below. It stays in your browser's Local Storage only.</li>
-                                </ol>
+                        <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-6 animate-fade-in`}>
+                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 How to configure YouTube Data API Datastore</h3>
+
+                            <div className="grid md:grid-cols-2 gap-6">
+                                {/* Scenario A */}
+                                <div className="space-y-2">
+                                    <h4 className="font-bold text-emerald-500 text-xs uppercase tracking-wider">A) If reusing your current open project panel</h4>
+                                    <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-400">
+                                        <li>You are currently inside the <strong>"Create API key"</strong> side drawer of <code>google-sheets-store</code>.</li>
+                                        <li>Ensure <strong>"Select API restrictions"</strong> dropdown is set to restriction and <strong className={t1}>YouTube Data API v3</strong> is checked.</li>
+                                        <li>Keep <strong>Application restrictions</strong> set to <strong className={t1}>"None"</strong>.</li>
+                                        <li>Click the blue <strong className="text-emerald-500">"Create"</strong> button at the bottom of the drawer.</li>
+                                        <li>Copy the newly generated string token and paste it below.</li>
+                                    </ol>
+                                </div>
+
+                                {/* Scenario B */}
+                                <div className="space-y-2">
+                                    <h4 className="font-bold text-blue-400 text-xs uppercase tracking-wider">B) If starting from absolute scratch</h4>
+                                    <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-400">
+                                        <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">console.cloud.google.com</a> and provision a brand new project space.</li>
+                                        <li>Search <em>"YouTube Data API v3"</em> inside the top console search field and click <strong>Enable</strong>.</li>
+                                        <li>Navigate to <strong>APIs & Services</strong> &gt; <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">Credentials</a> workspace dashboard.</li>
+                                        <li>Click <strong>Create Credentials</strong> &gt; <strong>API Key</strong>.</li>
+                                        <li>Apply API restrictions to restrict access specifically to YouTube Data API v3, then copy your generated key token below.</li>
+                                    </ol>
+                                </div>
                             </div>
-                            <div className="pt-2">
+
+                            <div className="pt-2 border-t border-slate-700/40">
                                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Your Google API Key</label>
-                                <input 
+                                <input
                                     type="password"
                                     value={apiKey}
                                     onChange={e => setApiKey(e.target.value)}
@@ -326,7 +338,7 @@
                         </div>
                     )}
 
-                    {/* Table View */}
+                    {/* Table Asset Index */}
                     {videos && !loading && (
                         <div className="space-y-6 animate-fade-in">
                             <div className={`${card} border rounded-xl overflow-hidden shadow-lg`}>
@@ -336,7 +348,7 @@
                                     </h3>
                                     <div className="flex items-center gap-2 flex-shrink-0">
                                         <span className={`text-[10px] ${mt}`}>A</span>
-                                        <input 
+                                        <input
                                             type="range" min="0" max="100" value={scaleSlider}
                                             onChange={e => setScaleSlider(Number(e.target.value))}
                                             className="scale-slider w-20" title={`Scale: ${Math.round(scale * 100)}%`}
@@ -345,48 +357,48 @@
                                     </div>
                                 </div>
 
-                                {/* Desktop View Table */}
+                                {/* Desktop Table Layout */}
                                 <div className={`hidden md:block overflow-x-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
-                                            <tr className={dark ? 'bg-slate-900/50' : 'bg-slate-50'}>
-                                                <th className={`px-4 sticky left-0 z-10 ${sB} font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Datetime</th>
-                                                <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Type</th>
-                                                <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Name</th>
-                                                <th className={`px-4 text-right font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>URL</th>
-                                            </tr>
+                                        <tr className={dark ? 'bg-slate-900/50' : 'bg-slate-50'}>
+                                            <th className={`px-4 sticky left-0 z-10 ${sB} font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Datetime</th>
+                                            <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Type</th>
+                                            <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Name</th>
+                                            <th className={`px-4 text-right font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>URL</th>
+                                        </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
-                                            {filteredVideos.map((v, i) => (
-                                                <tr key={i} className={`${hR} transition-colors`}>
-                                                    <td className={`px-4 font-mono ${mt} sticky left-0 z-10 ${sB} whitespace-nowrap`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        {formatDate(v.datetime)}
-                                                    </td>
-                                                    <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                        {filteredVideos.map((v, i) => (
+                                            <tr key={i} className={`${hR} transition-colors`}>
+                                                <td className={`px-4 font-mono ${mt} sticky left-0 z-10 ${sB} whitespace-nowrap`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                    {formatDate(v.datetime)}
+                                                </td>
+                                                <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <span className={`px-2 py-0.5 text-[11px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>
                                                             {v.type}
                                                         </span>
-                                                    </td>
-                                                    <td className={`px-4 font-medium ${t1} truncate max-w-md`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
-                                                        {v.name}
-                                                    </td>
-                                                    <td className="px-4 text-right whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
-                                                            Open ↗
-                                                        </a>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                            {filteredVideos.length === 0 && (
-                                                <tr>
-                                                    <td colSpan="4" className={`text-center py-8 ${mt}`}>No results matching criteria.</td>
-                                                </tr>
-                                            )}
+                                                </td>
+                                                <td className={`px-4 font-medium ${t1} truncate max-w-md`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
+                                                    {v.name}
+                                                </td>
+                                                <td className="px-4 text-right whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                    <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
+                                                        Open ↗
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {filteredVideos.length === 0 && (
+                                            <tr>
+                                                <td colSpan="4" className={`text-center py-8 ${mt}`}>No assets matching search configurations.</td>
+                                            </tr>
+                                        )}
                                         </tbody>
                                     </table>
                                 </div>
 
-                                {/* Mobile Cards View */}
+                                {/* Responsive Mobile Layout Cards */}
                                 <div className="block md:hidden p-4 space-y-3">
                                     {filteredVideos.map((v, i) => (
                                         <div key={i} className={`border rounded-xl p-4 ${dark ? 'bg-slate-900/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'} space-y-2`}>
@@ -398,7 +410,7 @@
                                             </div>
                                             <h4 className={`font-semibold text-sm ${t1} line-clamp-2`}>{v.name}</h4>
                                             <div className="pt-2">
-                                                <a href={v.url} target="_blank" rel="noreferrer" 
+                                                <a href={v.url} target="_blank" rel="noreferrer"
                                                    className="w-full text-center bg-emerald-500 hover:bg-emerald-400 text-white text-xs py-2 rounded-lg font-bold block transition-all">
                                                     Watch on YouTube ↗
                                                 </a>
