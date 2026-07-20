@@ -37,7 +37,7 @@
 
         .console-wrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease-out,opacity .25s ease-out;opacity:0}
         .console-wrap.open{grid-template-rows:1fr;opacity:1}
-        .console-inner{overflow:hidden}
+        .console-inner{overflow:hidden;min-height:0}
 
         input[type=range].scale-slider{-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;outline:none;cursor:pointer}
         input[type=range].scale-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;cursor:pointer}
@@ -520,7 +520,7 @@
                 </div>
 
                 {/* Main Workspace Area */}
-                <div className="px-4 xl:px-8 py-6">
+                <div className="px-4 xl:px-8 py-3">
                     {/* Tutorial & Settings Drawer */}
                     {showSettings && (
                         <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-4 animate-fade-in`}>
