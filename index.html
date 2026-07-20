@@ -7,7 +7,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -17,7 +17,7 @@
         }
     </script>
 
-    <!-- React, ReactDOM, Babel (React preset only for stability) -->
+    <!-- React, ReactDOM, Babel (React preset) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
@@ -65,7 +65,7 @@
     const lp = () => { try { return JSON.parse(localStorage.getItem(LS_P)) || {}; } catch { return {}; } };
     const sp = p => { try { localStorage.setItem(LS_P, JSON.stringify(p)); } catch {} };
 
-    // Cache management
+    // Управление кэшем по ID канала
     const getCache = (channelId) => {
         try { return JSON.parse(localStorage.getItem(`yt-data-${channelId}`)) || null; } catch { return null; }
     };
@@ -90,7 +90,7 @@
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
         const [logs, setLogs] = useState([]);
 
-        // Table Sort & Filter States
+        // Сортировка и фильтрация колонок
         const [sortConfig, setSortConfig] = useState({ key: 'datetime', direction: 'desc' });
         const [filters, setFilters] = useState({ datetime: '', type: '', name: '', url: '' });
 
@@ -126,25 +126,45 @@
 
             setLoading(true);
             setError(null);
+            setVideos(null);
             setLogs([]);
 
             const handle = extractUsername(channelUrl);
-            log(`🔍 Resolving channel handle: @${handle}`);
+            log(`🔍 Resolving channel metadata: @${handle}`);
 
             try {
-                // 1. Get Channel ID
-                const channelSearchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handle)}&key=${apiKey}`;
-                const chRes = await fetch(channelSearchUrl);
-                if (!chRes.ok) throw new Error(`API Error (Handle Resolution). Status: ${chRes.status}`);
-                const chData = await chRes.json();
+                // Шаг 1: Получаем детали канала (включая ID плейлиста всех загрузок)
+                const channelDetailsUrl = `https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet&forUsername=${encodeURIComponent(handle)}&key=${apiKey}`;
+                let chRes = await fetch(channelDetailsUrl);
+                if (!chRes.ok) throw new Error(`Channels API error. Status: ${chRes.status}`);
+                let chData = await chRes.json();
 
-                if (!chData.items || chData.items.length === 0) throw new Error(`No channel found for handle: @${handle}`);
+                // Если по username (старый формат) не нашло, ищем через эндпоинт поиска (для новых хэндлов с @)
+                if (!chData.items || chData.items.length === 0) {
+                    log(`⚠️ Handle not resolved directly. Running broad index search...`);
+                    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handle)}&key=${apiKey}`;
+                    const sRes = await fetch(searchUrl);
+                    if (!sRes.ok) throw new Error(`Search API error. Status: ${sRes.status}`);
+                    const sData = await sRes.json();
 
-                const channelId = chData.items[0].id.channelId;
+                    if (!sData.items || sData.items.length === 0) throw new Error(`Channel @${handle} not found.`);
+
+                    const fallbackId = sData.items[0].id.channelId;
+                    const fallbackRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet&id=${fallbackId}&key=${apiKey}`);
+                    chData = await fallbackRes.json();
+                }
+
+                if (!chData.items || chData.items.length === 0) throw new Error(`Failed to map metadata context.`);
+
+                const channelId = chData.items[0].id;
                 const channelTitle = chData.items[0].snippet.title;
-                log(`✅ Found Channel: "${channelTitle}" (ID: ${channelId})`);
+                // ID плейлиста всех загруженных видео канала (Uploads Playlist)
+                const uploadsPlaylistId = chData.items[0].contentDetails.relatedPlaylists.uploads;
 
-                // 2. Check LocalStorage Cache
+                log(`✅ Found Channel: "${channelTitle}"`);
+                log(`📦 Uploads Playlist Storage mapped: ${uploadsPlaylistId}`);
+
+                // Проверяем кэш локального хранилища
                 const cachedData = getCache(channelId);
                 if (cachedData && !forceRefresh) {
                     log(`📦 Loaded ${cachedData.length} items from LocalStorage cache.`);
@@ -153,45 +173,53 @@
                     return;
                 }
 
-                // 3. Fetch Data with Pagination
-                log(`📥 Fetching data... (This may take a moment for large channels)`);
+                // Шаг 2: Итеративный сбор данных из плейлиста Uploads (без лимита в 150)
+                log(`📥 Extracting full archive via playlist item iteration...`);
                 let allItems = [];
                 let nextPageToken = '';
                 let pageCount = 0;
-                const MAX_PAGES = 10; // 10 pages * 50 = 500 items max per fetch
+                // Снимаем ограничение страниц, итерируемся пока есть nextPageToken
 
                 do {
-                    const searchVideosUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
-                    const vRes = await fetch(searchVideosUrl);
-                    if (!vRes.ok) throw new Error(`YouTube API Fetch Error. Status: ${vRes.status}`);
-                    const vData = await vRes.json();
+                    const playlistItemsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=50&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+                    const pRes = await fetch(playlistItemsUrl);
+                    if (!pRes.ok) throw new Error(`PlaylistItems API Error. Status: ${pRes.status}`);
+                    const pData = await pRes.json();
 
-                    if (vData.items) allItems.push(...vData.items);
-                    nextPageToken = vData.nextPageToken;
+                    if (pData.items) {
+                        allItems.push(...pData.items);
+                    }
+                    nextPageToken = pData.nextPageToken;
                     pageCount++;
 
-                    log(`⏳ Fetched page ${pageCount} (${allItems.length} items)...`);
-                } while (nextPageToken && pageCount < MAX_PAGES);
+                    log(`⏳ Synced page ${pageCount} (Accumulated: ${allItems.length} records)...`);
+                } while (nextPageToken);
 
-                // 4. Process and Merge
+                // Шаг 3: Маппинг и нормализация данных
                 const processed = allItems.map(item => {
                     const title = item.snippet.title;
-                    const isLive = item.snippet.liveBroadcastContent === 'live' || item.snippet.liveBroadcastContent === 'upcoming';
-                    let type = isLive ? 'Live' : 'Video';
+                    const videoId = item.snippet.resourceId.videoId;
+
+                    // Распределяем типы контента по маркерам в названии или структуре описания
+                    let type = 'Video';
                     if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
                         type = 'Shorts';
+                    } else if (title.toLowerCase().includes('live') || title.toLowerCase().includes('stream')) {
+                        // YouTube сохраняет прошедшие стримы в загрузки, маркируем по контексту
+                        type = 'Live';
                     }
+
                     return {
-                        datetime: item.snippet.publishedAt, // 2026-07-17T23:18:00Z format
+                        datetime: item.snippet.publishedAt,
                         type,
                         name: title,
-                        url: `https://www.youtube.com/watch?v=${item.id.videoId}`
+                        url: `https://www.youtube.com/watch?v=${videoId}`
                     };
                 });
 
-                log(`✅ Successfully loaded and processed ${processed.length} entries.`);
+                log(`✅ Successfully synced entire channel universe. Total: ${processed.length} assets.`);
                 setVideos(processed);
-                setCache(channelId, processed); // Save to LocalStorage
+                setCache(channelId, processed);
             } catch (err) {
                 log(`❌ Exception: ${err.message}`);
                 setError(err.message);
@@ -200,7 +228,6 @@
             }
         };
 
-        // Handle Sorting
         const requestSort = (key) => {
             let direction = 'asc';
             if (sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -209,18 +236,14 @@
             setSortConfig({ key, direction });
         };
 
-        // Handle Filtering Input
         const handleFilterChange = (key, value) => {
             setFilters(prev => ({ ...prev, [key]: value }));
         };
 
-        // Apply Sort and Filter
         const processedVideos = useMemo(() => {
             if (!videos) return [];
-
             let result = [...videos];
 
-            // 1. Filter
             Object.keys(filters).forEach(key => {
                 const filterVal = filters[key].toLowerCase();
                 if (filterVal) {
@@ -228,11 +251,9 @@
                 }
             });
 
-            // 2. Sort
             result.sort((a, b) => {
                 const aVal = a[sortConfig.key];
                 const bVal = b[sortConfig.key];
-
                 if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
                 if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
@@ -240,7 +261,6 @@
 
             return result;
         }, [videos, sortConfig, filters]);
-
 
         const getBadgeStyle = (type) => {
             if (type === 'Live') return dark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200';
@@ -270,7 +290,6 @@
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
 
-        // Render Sortable Column Header
         const Th = ({ label, columnKey, width }) => (
             <th className={`px-4 align-top ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                 <div className="flex flex-col gap-1.5">
@@ -368,21 +387,12 @@
                 <div className="px-4 xl:px-8 py-6">
                     {/* Settings Guideline */}
                     {showSettings && (
-                        <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-6 animate-fade-in`}>
-                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 Configuration & API Quota Note</h3>
-
+                        <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-4 animate-fade-in`}>
+                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 Deep Upload Playlist Extraction</h3>
                             <div className="space-y-2 text-xs text-slate-400">
-                                <p><strong>Cache & Pagination:</strong> We now fetch up to 500 items across multiple paginated requests and save them to your browser's LocalStorage. This saves API quota (Search costs 100 units/page).</p>
-                                <p>Use the <strong>"Load"</strong> button to pull from local cache instantly. Use <strong>"Refresh"</strong> to force a new sync with YouTube.</p>
-                                <hr className="border-slate-700/40 my-2" />
-                                <ol className="list-decimal pl-4 space-y-1">
-                                    <li>Ensure <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noreferrer" className="text-emerald-500 hover:underline">YouTube Data API v3</a> is enabled.</li>
-                                    <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-emerald-500 hover:underline">Credentials</a>.</li>
-                                    <li>Create an <strong>API key</strong>, restrict it to YouTube Data API v3, and paste it below.</li>
-                                </ol>
+                                <p><strong>Архитектурное обновление:</strong> Вместо стандартного эндпоинта поиска YouTube (который искусственно режет выдачу на отметке в 150 видео), это обновление находит скрытый системный ID плейлиста всех загрузок канала (Uploads Playlist) и полностью выкачивает весь архив через постраничную итерацию.</p>
                             </div>
-
-                            <div className="pt-2 border-t border-slate-700/40">
+                            <div className="pt-2">
                                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Your Google API Key</label>
                                 <input
                                     type="password"
@@ -421,7 +431,7 @@
                                     </div>
                                 </div>
 
-                                {/* Desktop Table Layout with Sort & Filter Headers */}
+                                {/* Desktop Table Layout */}
                                 <div className={`hidden md:block overflow-x-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
@@ -462,7 +472,7 @@
                                     </table>
                                 </div>
 
-                                {/* Responsive Mobile Cards (Applies filtering, hides sort headers for space) */}
+                                {/* Responsive Mobile Layout Cards */}
                                 <div className="block md:hidden p-4 space-y-3">
                                     <div className="pb-2 flex gap-2 overflow-x-auto">
                                         <input type="text" placeholder="Filter Name..." value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-[120px] px-3 py-2 text-xs rounded border ${inpFilter}`} />
@@ -484,11 +494,22 @@
                                             </div>
                                         </div>
                                     ))}
-                                    {processedVideos.length === 0 && (
-                                        <p className={`text-center py-4 ${mt} text-sm`}>No results.</p>
-                                    )}
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {loading && (
+                        <div className={`text-center py-20 ${mt} flex items-center justify-center gap-3`}>
+                            <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"/>
+                            Extracting complete playlist assets iteration...
+                        </div>
+                    )}
+
+                    {!loading && !videos && !error && (
+                        <div className={`text-center py-20 ${mt}`}>
+                            <p className="text-lg">Enter a valid YouTube handle above to run queries</p>
+                            <p className="text-sm mt-1">Make sure you provided your API key inside Settings tab</p>
                         </div>
                     )}
                 </div>
