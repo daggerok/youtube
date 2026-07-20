@@ -338,7 +338,7 @@
             const rows = processedVideos.map(v => {
                 const safeName = v.name.replace(/"/g, '""');
                 const d = new Date(v.datetime);
-                const isoStr = d.toISOString();
+                const isoStr = d.toISOString(); // yyyy-mm-ddTHH:mm:ss.sssZ
                 return `"${isoStr}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}","${(v.note || '').replace(/"/g, '""')}"`;
             });
 
