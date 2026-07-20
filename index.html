@@ -7,7 +7,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -17,6 +17,7 @@
         }
     </script>
 
+    <!-- React, ReactDOM, Babel (React preset only for stability) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
@@ -64,23 +65,16 @@
     const lp = () => { try { return JSON.parse(localStorage.getItem(LS_P)) || {}; } catch { return {}; } };
     const sp = p => { try { localStorage.setItem(LS_P, JSON.stringify(p)); } catch {} };
 
+    // Cache management
+    const getCache = (channelId) => {
+        try { return JSON.parse(localStorage.getItem(`yt-data-${channelId}`)) || null; } catch { return null; }
+    };
+    const setCache = (channelId, data) => {
+        try { localStorage.setItem(`yt-data-${channelId}`, JSON.stringify(data)); } catch {}
+    };
+
     const sliderToScale = v => 0.7 + (v / 100) * 0.8;
     const DEFAULT_SCALE_SLIDER = 50;
-
-    const Pill = ({ value, options, onChange, dark }) => (
-        <div className={`flex-shrink-0 flex items-center rounded-lg p-0.5 border ${dark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`}>
-            {options.map(opt => {
-                const k = typeof opt === 'string' ? opt : opt.k;
-                const l = typeof opt === 'string' ? opt : opt.l;
-                return (
-                    <button key={k} onClick={() => onChange(k)}
-                            className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${value === k ? 'bg-emerald-500 text-white shadow-sm' : dark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>
-                        {l}
-                    </button>
-                );
-            })}
-        </div>
-    );
 
     const App = () => {
         const prefs = useMemo(() => lp(), []);
@@ -91,10 +85,14 @@
         const [error, setError] = useState(null);
         const [dark, setDark] = useState(prefs.dark !== false);
         const [scaleSlider, setScaleSlider] = useState(prefs.scaleSlider ?? DEFAULT_SCALE_SLIDER);
-        const [filter, setFilter] = useState('All');
+
         const [videos, setVideos] = useState(null);
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
         const [logs, setLogs] = useState([]);
+
+        // Table Sort & Filter States
+        const [sortConfig, setSortConfig] = useState({ key: 'datetime', direction: 'desc' });
+        const [filters, setFilters] = useState({ datetime: '', type: '', name: '', url: '' });
 
         const scale = sliderToScale(scaleSlider);
         const log = msg => setLogs(p => [...p.slice(-19), msg]);
@@ -118,7 +116,7 @@
             return match ? match[1] : url.trim();
         };
 
-        const handleFetch = async () => {
+        const handleFetch = async (forceRefresh = false) => {
             if (!apiKey.trim()) {
                 setError("Google API Key is required. Please check settings.");
                 setShowSettings(true);
@@ -128,53 +126,72 @@
 
             setLoading(true);
             setError(null);
-            setVideos(null);
             setLogs([]);
 
             const handle = extractUsername(channelUrl);
             log(`🔍 Resolving channel handle: @${handle}`);
 
             try {
+                // 1. Get Channel ID
                 const channelSearchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handle)}&key=${apiKey}`;
                 const chRes = await fetch(channelSearchUrl);
                 if (!chRes.ok) throw new Error(`API Error (Handle Resolution). Status: ${chRes.status}`);
                 const chData = await chRes.json();
 
-                if (!chData.items || chData.items.length === 0) {
-                    throw new Error(`No channel found for handle: @${handle}`);
-                }
+                if (!chData.items || chData.items.length === 0) throw new Error(`No channel found for handle: @${handle}`);
 
                 const channelId = chData.items[0].id.channelId;
                 const channelTitle = chData.items[0].snippet.title;
                 log(`✅ Found Channel: "${channelTitle}" (ID: ${channelId})`);
 
-                log(`📥 Querying YouTube Data API engine...`);
-                const searchVideosUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}`;
-                const vRes = await fetch(searchVideosUrl);
-                if (!vRes.ok) throw new Error(`YouTube API Fetch Error. Status: ${vRes.status}`);
-                const vData = await vRes.json();
+                // 2. Check LocalStorage Cache
+                const cachedData = getCache(channelId);
+                if (cachedData && !forceRefresh) {
+                    log(`📦 Loaded ${cachedData.length} items from LocalStorage cache.`);
+                    setVideos(cachedData);
+                    setLoading(false);
+                    return;
+                }
 
-                if (!vData.items) throw new Error("Invalid API response format structure.");
+                // 3. Fetch Data with Pagination
+                log(`📥 Fetching data... (This may take a moment for large channels)`);
+                let allItems = [];
+                let nextPageToken = '';
+                let pageCount = 0;
+                const MAX_PAGES = 10; // 10 pages * 50 = 500 items max per fetch
 
-                const processed = vData.items.map(item => {
+                do {
+                    const searchVideosUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+                    const vRes = await fetch(searchVideosUrl);
+                    if (!vRes.ok) throw new Error(`YouTube API Fetch Error. Status: ${vRes.status}`);
+                    const vData = await vRes.json();
+
+                    if (vData.items) allItems.push(...vData.items);
+                    nextPageToken = vData.nextPageToken;
+                    pageCount++;
+
+                    log(`⏳ Fetched page ${pageCount} (${allItems.length} items)...`);
+                } while (nextPageToken && pageCount < MAX_PAGES);
+
+                // 4. Process and Merge
+                const processed = allItems.map(item => {
                     const title = item.snippet.title;
                     const isLive = item.snippet.liveBroadcastContent === 'live' || item.snippet.liveBroadcastContent === 'upcoming';
-
                     let type = isLive ? 'Live' : 'Video';
                     if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
                         type = 'Shorts';
                     }
-
                     return {
-                        datetime: item.snippet.publishedAt,
+                        datetime: item.snippet.publishedAt, // 2026-07-17T23:18:00Z format
                         type,
                         name: title,
                         url: `https://www.youtube.com/watch?v=${item.id.videoId}`
                     };
                 });
 
-                log(`✅ Loaded ${processed.length} entries successfully.`);
+                log(`✅ Successfully loaded and processed ${processed.length} entries.`);
                 setVideos(processed);
+                setCache(channelId, processed); // Save to LocalStorage
             } catch (err) {
                 log(`❌ Exception: ${err.message}`);
                 setError(err.message);
@@ -183,19 +200,55 @@
             }
         };
 
-        const filteredVideos = useMemo(() => {
-            if (!videos) return [];
-            if (filter === 'All') return videos;
-            return videos.filter(v => v.type === filter);
-        }, [videos, filter]);
+        // Handle Sorting
+        const requestSort = (key) => {
+            let direction = 'asc';
+            if (sortConfig.key === key && sortConfig.direction === 'asc') {
+                direction = 'desc';
+            }
+            setSortConfig({ key, direction });
+        };
 
-        const getBadgeStyle = type => {
+        // Handle Filtering Input
+        const handleFilterChange = (key, value) => {
+            setFilters(prev => ({ ...prev, [key]: value }));
+        };
+
+        // Apply Sort and Filter
+        const processedVideos = useMemo(() => {
+            if (!videos) return [];
+
+            let result = [...videos];
+
+            // 1. Filter
+            Object.keys(filters).forEach(key => {
+                const filterVal = filters[key].toLowerCase();
+                if (filterVal) {
+                    result = result.filter(v => String(v[key]).toLowerCase().includes(filterVal));
+                }
+            });
+
+            // 2. Sort
+            result.sort((a, b) => {
+                const aVal = a[sortConfig.key];
+                const bVal = b[sortConfig.key];
+
+                if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            return result;
+        }, [videos, sortConfig, filters]);
+
+
+        const getBadgeStyle = (type) => {
             if (type === 'Live') return dark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200';
             if (type === 'Shorts') return dark ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-purple-50 text-purple-700 border-purple-200';
             return dark ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-blue-50 text-blue-700 border-blue-200';
         };
 
-        const formatDate = isoStr => {
+        const formatDate = (isoStr) => {
             return new Date(isoStr).toLocaleString('en-US', {
                 year: 'numeric', month: '2-digit', day: '2-digit',
                 hour: '2-digit', minute: '2-digit', hour12: false
@@ -206,6 +259,7 @@
         const bdr = dark ? 'border-slate-800' : 'border-slate-200';
         const card = dark ? 'bg-slate-800 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-sm';
         const inp = dark ? 'bg-slate-800 border-slate-700 text-emerald-400' : 'bg-slate-50 border-slate-300 text-emerald-700';
+        const inpFilter = dark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800';
         const mt = dark ? 'text-slate-400' : 'text-slate-500';
         const t1 = dark ? 'text-slate-100' : 'text-slate-800';
         const sB = dark ? 'bg-slate-800' : 'bg-white';
@@ -216,16 +270,39 @@
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
 
+        // Render Sortable Column Header
+        const Th = ({ label, columnKey, width }) => (
+            <th className={`px-4 align-top ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                <div className="flex flex-col gap-1.5">
+                    <button
+                        onClick={() => requestSort(columnKey)}
+                        className={`flex items-center gap-1 font-semibold uppercase tracking-wider text-left transition-colors hover:text-emerald-500 ${sortConfig.key === columnKey ? 'text-emerald-500' : mt}`}
+                    >
+                        {label}
+                        <span className="text-[10px]">
+                            {sortConfig.key === columnKey ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}
+                        </span>
+                    </button>
+                    <input
+                        type="text"
+                        placeholder="Filter..."
+                        value={filters[columnKey]}
+                        onChange={(e) => handleFilterChange(columnKey, e.target.value)}
+                        className={`w-full px-2 py-1 text-[10px] rounded border focus:outline-none focus:border-emerald-500 transition-colors ${inpFilter}`}
+                    />
+                </div>
+            </th>
+        );
+
         return (
             <React.Fragment>
                 {/* Navbar */}
                 <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md border-b ${bdr}`}>
                     <div className="px-4 xl:px-8">
-                        <div className="flex items-center gap-3 py-3">
+                        <div className="flex flex-wrap items-center gap-3 py-3">
                             <button
                                 onClick={() => setShowSettings(!showSettings)}
                                 className={`flex-shrink-0 text-xs px-2 py-1.5 rounded transition-colors ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600')}`}
-                                title="Toggle API Settings Guide"
                             >
                                 ⚙️ Settings
                             </button>
@@ -233,38 +310,40 @@
                                 <div className={`h-2.5 w-2.5 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "API Key Configured" : "API Key Missing"}/>
                             </div>
 
-                            <div className="flex-1 min-w-0">
+                            <div className="flex-1 min-w-[200px]">
                                 <input
                                     type="text"
                                     value={channelUrl}
                                     onChange={e => setChannelUrl(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleFetch()}
+                                    onKeyDown={e => e.key === 'Enter' && handleFetch(false)}
                                     placeholder="YouTube Channel link or handle (@InnerCircleTrader)..."
                                     className={`w-full ${inp} border rounded-lg px-3 py-2 font-mono font-medium text-sm focus:outline-none focus:border-emerald-500 transition-colors`}
                                 />
                             </div>
 
                             <button
-                                onClick={handleFetch}
+                                onClick={() => handleFetch(false)}
                                 disabled={loading}
+                                title="Fetch (uses cache if available)"
                                 className="flex-shrink-0 flex items-center bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-40"
                             >
                                 {loading ? (
                                     <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"/>
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
-                                    </svg>
-                                )}
+                                ) : 'Load'}
+                            </button>
+
+                            <button
+                                onClick={() => handleFetch(true)}
+                                disabled={loading || !channelUrl}
+                                title="Force Refresh API (Bypasses Cache)"
+                                className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'}`}
+                            >
+                                🔄 Refresh
                             </button>
 
                             <button onClick={() => setDark(!dark)} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
                                 {dark ? '☀' : '🌙'}
                             </button>
-
-                            {videos && (
-                                <Pill value={filter} options={['All', 'Video', 'Live', 'Shorts']} onChange={setFilter} dark={dark} />
-                            )}
                         </div>
 
                         {/* Console Logs Wrapper */}
@@ -287,35 +366,20 @@
 
                 {/* Content Workspace */}
                 <div className="px-4 xl:px-8 py-6">
-                    {/* Multi-scenario Setup Guideline */}
+                    {/* Settings Guideline */}
                     {showSettings && (
                         <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-6 animate-fade-in`}>
-                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 How to configure YouTube Data API Datastore</h3>
+                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 Configuration & API Quota Note</h3>
 
-                            <div className="grid md:grid-cols-2 gap-6">
-                                {/* Scenario A */}
-                                <div className="space-y-2">
-                                    <h4 className="font-bold text-emerald-500 text-xs uppercase tracking-wider">A) If reusing your current open project panel</h4>
-                                    <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-400">
-                                        <li>You are currently inside the <strong>"Create API key"</strong> side drawer of <code>google-sheets-store</code>.</li>
-                                        <li>Ensure <strong>"Select API restrictions"</strong> dropdown is set to restriction and <strong className={t1}>YouTube Data API v3</strong> is checked.</li>
-                                        <li>Keep <strong>Application restrictions</strong> set to <strong className={t1}>"None"</strong>.</li>
-                                        <li>Click the blue <strong className="text-emerald-500">"Create"</strong> button at the bottom of the drawer.</li>
-                                        <li>Copy the newly generated string token and paste it below.</li>
-                                    </ol>
-                                </div>
-
-                                {/* Scenario B */}
-                                <div className="space-y-2">
-                                    <h4 className="font-bold text-blue-400 text-xs uppercase tracking-wider">B) If starting from absolute scratch</h4>
-                                    <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-400">
-                                        <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">console.cloud.google.com</a> and provision a brand new project space.</li>
-                                        <li>Search <em>"YouTube Data API v3"</em> inside the top console search field and click <strong>Enable</strong>.</li>
-                                        <li>Navigate to <strong>APIs & Services</strong> &gt; <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">Credentials</a> workspace dashboard.</li>
-                                        <li>Click <strong>Create Credentials</strong> &gt; <strong>API Key</strong>.</li>
-                                        <li>Apply API restrictions to restrict access specifically to YouTube Data API v3, then copy your generated key token below.</li>
-                                    </ol>
-                                </div>
+                            <div className="space-y-2 text-xs text-slate-400">
+                                <p><strong>Cache & Pagination:</strong> We now fetch up to 500 items across multiple paginated requests and save them to your browser's LocalStorage. This saves API quota (Search costs 100 units/page).</p>
+                                <p>Use the <strong>"Load"</strong> button to pull from local cache instantly. Use <strong>"Refresh"</strong> to force a new sync with YouTube.</p>
+                                <hr className="border-slate-700/40 my-2" />
+                                <ol className="list-decimal pl-4 space-y-1">
+                                    <li>Ensure <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noreferrer" className="text-emerald-500 hover:underline">YouTube Data API v3</a> is enabled.</li>
+                                    <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-emerald-500 hover:underline">Credentials</a>.</li>
+                                    <li>Create an <strong>API key</strong>, restrict it to YouTube Data API v3, and paste it below.</li>
+                                </ol>
                             </div>
 
                             <div className="pt-2 border-t border-slate-700/40">
@@ -338,13 +402,13 @@
                         </div>
                     )}
 
-                    {/* Table Asset Index */}
+                    {/* Main Table Interface */}
                     {videos && !loading && (
                         <div className="space-y-6 animate-fade-in">
                             <div className={`${card} border rounded-xl overflow-hidden shadow-lg`}>
                                 <div className={`px-4 py-3 border-b ${dark ? 'border-slate-700/50' : 'border-slate-200'} bg-gradient-to-r ${dark ? 'from-slate-900/30 to-slate-900/10' : 'from-slate-50 to-slate-100/50'} flex items-center justify-between gap-4`}>
                                     <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(16 * scale)}px` }}>
-                                        📋 Channel Inventory Index ({filteredVideos.length})
+                                        📋 Channel Inventory ({processedVideos.length} / {videos.length})
                                     </h3>
                                     <div className="flex items-center gap-2 flex-shrink-0">
                                         <span className={`text-[10px] ${mt}`}>A</span>
@@ -357,19 +421,19 @@
                                     </div>
                                 </div>
 
-                                {/* Desktop Table Layout */}
+                                {/* Desktop Table Layout with Sort & Filter Headers */}
                                 <div className={`hidden md:block overflow-x-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
                                         <tr className={dark ? 'bg-slate-900/50' : 'bg-slate-50'}>
-                                            <th className={`px-4 sticky left-0 z-10 ${sB} font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Datetime</th>
-                                            <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Type</th>
-                                            <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Name</th>
-                                            <th className={`px-4 text-right font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>URL</th>
+                                            <Th label="Datetime" columnKey="datetime" width="w-48" />
+                                            <Th label="Type" columnKey="type" width="w-32" />
+                                            <Th label="Name" columnKey="name" />
+                                            <Th label="URL" columnKey="url" width="w-32" />
                                         </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
-                                        {filteredVideos.map((v, i) => (
+                                        {processedVideos.map((v, i) => (
                                             <tr key={i} className={`${hR} transition-colors`}>
                                                 <td className={`px-4 font-mono ${mt} sticky left-0 z-10 ${sB} whitespace-nowrap`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                     {formatDate(v.datetime)}
@@ -379,28 +443,32 @@
                                                             {v.type}
                                                         </span>
                                                 </td>
-                                                <td className={`px-4 font-medium ${t1} truncate max-w-md`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
+                                                <td className={`px-4 font-medium ${t1} max-w-lg truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
                                                     {v.name}
                                                 </td>
-                                                <td className="px-4 text-right whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                     <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
                                                         Open ↗
                                                     </a>
                                                 </td>
                                             </tr>
                                         ))}
-                                        {filteredVideos.length === 0 && (
+                                        {processedVideos.length === 0 && (
                                             <tr>
-                                                <td colSpan="4" className={`text-center py-8 ${mt}`}>No assets matching search configurations.</td>
+                                                <td colSpan="4" className={`text-center py-8 ${mt}`}>No results match your filters.</td>
                                             </tr>
                                         )}
                                         </tbody>
                                     </table>
                                 </div>
 
-                                {/* Responsive Mobile Layout Cards */}
+                                {/* Responsive Mobile Cards (Applies filtering, hides sort headers for space) */}
                                 <div className="block md:hidden p-4 space-y-3">
-                                    {filteredVideos.map((v, i) => (
+                                    <div className="pb-2 flex gap-2 overflow-x-auto">
+                                        <input type="text" placeholder="Filter Name..." value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-[120px] px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                        <input type="text" placeholder="Filter Type..." value={filters.type} onChange={e => handleFilterChange('type', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                    </div>
+                                    {processedVideos.map((v, i) => (
                                         <div key={i} className={`border rounded-xl p-4 ${dark ? 'bg-slate-900/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'} space-y-2`}>
                                             <div className="flex items-center justify-between gap-2">
                                                 <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>
@@ -410,30 +478,17 @@
                                             </div>
                                             <h4 className={`font-semibold text-sm ${t1} line-clamp-2`}>{v.name}</h4>
                                             <div className="pt-2">
-                                                <a href={v.url} target="_blank" rel="noreferrer"
-                                                   className="w-full text-center bg-emerald-500 hover:bg-emerald-400 text-white text-xs py-2 rounded-lg font-bold block transition-all">
+                                                <a href={v.url} target="_blank" rel="noreferrer" className="w-full text-center bg-emerald-500 hover:bg-emerald-400 text-white text-xs py-2 rounded-lg font-bold block transition-all">
                                                     Watch on YouTube ↗
                                                 </a>
                                             </div>
                                         </div>
                                     ))}
+                                    {processedVideos.length === 0 && (
+                                        <p className={`text-center py-4 ${mt} text-sm`}>No results.</p>
+                                    )}
                                 </div>
-
                             </div>
-                        </div>
-                    )}
-
-                    {loading && (
-                        <div className={`text-center py-20 ${mt} flex items-center justify-center gap-3`}>
-                            <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"/>
-                            Querying live Google endpoints...
-                        </div>
-                    )}
-
-                    {!loading && !videos && !error && (
-                        <div className={`text-center py-20 ${mt}`}>
-                            <p className="text-lg">Enter a valid YouTube handle above to run queries</p>
-                            <p className="text-sm mt-1">Make sure you provided your API key inside Settings tab</p>
                         </div>
                     )}
                 </div>
