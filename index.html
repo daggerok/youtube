@@ -279,13 +279,19 @@
         };
 
         // --- Auto-Load Hook ---
-        // Автоматически нажимает "Load" при открытии страницы, чтобы сразу показать твой прогресс
+        // Load cached data on open, then check for updates
         useEffect(() => {
             if (isInitialMount.current) {
                 isInitialMount.current = false;
-                if (channelUrl) {
-                    handleFetch('load');
-                }
+                const init = async () => {
+                    if (channelUrl) {
+                        await handleFetch('load');
+                        if (apiKey.trim()) {
+                            await handleFetch('update');
+                        }
+                    }
+                };
+                init();
             }
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
@@ -298,8 +304,8 @@
                 if (v.url === url) {
                     const current = v.status || 'unwatched';
                     let nextStatus = 'unwatched';
-                    if (current === 'unwatched') nextStatus = 'started';
-                    else if (current === 'started') nextStatus = 'finished';
+                    if (current === 'unwatched') nextStatus = 'watching';
+                    else if (current === 'watching') nextStatus = 'watched';
                     return { ...v, status: nextStatus };
                 }
                 return v;
@@ -313,10 +319,13 @@
         const handleExportCSV = () => {
             if (!processedVideos || processedVideos.length === 0) return;
 
-            const headers = ['Datetime', 'Type', 'Status', 'Name', 'URL'];
+            const headers = ['Date', 'Time', 'Type', 'Status', 'Name', 'URL'];
             const rows = processedVideos.map(v => {
-                const safeName = v.name.replace(/"/g, '""'); // Экранирование кавычек для CSV
-                return `"${v.datetime}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}"`;
+                const safeName = v.name.replace(/"/g, '""');
+                const d = new Date(v.datetime);
+                const dateStr = d.toISOString().split('T')[0];
+                const timeStr = d.toISOString().split('T')[1].replace('Z', '');
+                return `"${dateStr}","${timeStr}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}"`;
             });
 
             const csvContent = [headers.join(','), ...rows].join('\n');
@@ -374,8 +383,8 @@
         };
 
         const getStatusDisplay = (status) => {
-            if (status === 'finished') return { label: '🟢 Finished', cls: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 shadow-sm shadow-emerald-500/10' };
-            if (status === 'started') return { label: '🟡 Started', cls: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20 shadow-sm shadow-yellow-500/10' };
+            if (status === 'watched') return { label: '🟢 Watched', cls: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 shadow-sm shadow-emerald-500/10' };
+            if (status === 'watching') return { label: '🟡 Watching', cls: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20 shadow-sm shadow-yellow-500/10' };
             return { label: '⚪️ Unwatched', cls: dark ? 'text-slate-400 bg-slate-800 border-slate-700' : 'text-slate-500 bg-slate-100 border-slate-200' };
         };
 
@@ -454,23 +463,17 @@
 
                             {/* Action Control Panel */}
                             <div className="flex items-center gap-2">
-                                <button onClick={() => handleFetch('load')} disabled={loading} title="Instant Load from Cache" className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-40 shadow-sm flex items-center justify-center gap-1.5 min-w-[80px]">
-                                    {loading ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"/> : 'Load'}
+                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Update" className={`flex-shrink-0 text-lg font-bold w-9 h-9 rounded-lg border transition-all shadow-sm flex items-center justify-center ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'} disabled:opacity-40`}>
+                                    ⬇
                                 </button>
 
-                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Smart Sync: Only fetch newly released videos" className={`flex-shrink-0 text-xs font-bold px-3 py-2 rounded-lg border transition-all shadow-sm ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
-                                    ⚡ Update
-                                </button>
-
-                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Deep Archive Wipe & Resync" className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'}`}>
-                                    🔄 Refresh
+                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Refresh / Reload" className={`flex-shrink-0 text-lg w-9 h-9 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'} disabled:opacity-40 flex items-center justify-center`}>
+                                    🔄
                                 </button>
                             </div>
 
-                            <div className="w-px h-6 bg-slate-700/50 mx-1 hidden md:block"></div>
-
-                            <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export Current View to CSV" className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-emerald-400' : 'border-slate-300 hover:bg-slate-100 text-emerald-600'} disabled:opacity-40 font-semibold`}>
-                                📥 CSV
+                            <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export CSV" className={`flex-shrink-0 text-lg w-9 h-9 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-emerald-400' : 'border-slate-300 hover:bg-slate-100 text-emerald-600'} disabled:opacity-40 flex items-center justify-center`}>
+                                📥
                             </button>
 
                             <button onClick={() => setDark(!dark)} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -505,7 +508,7 @@
                             <div className="space-y-3 text-xs text-slate-400">
                                 <div><strong className="text-emerald-500">Auto-Load & Persistence:</strong> Your sorting preferences, column filters, and video watch statuses are securely saved directly in your browser. Upon opening the page, it automatically loads your exact previous state with zero API cost.</div>
                                 <div><strong className="text-blue-400">⚡ Update Mode:</strong> Safely fetches only new releases from YouTube, instantly appending them to your database without overwriting your progress.</div>
-                                <div><strong className={t1}>Watch Status Tracker:</strong> Click inside the Status column to mark learning progress: Unwatched ➔ Started ➔ Finished.</div>
+                                <div><strong className={t1}>Watch Status Tracker:</strong> Click inside the Status column to mark learning progress: Unwatched ➔ Watching ➔ Watched.</div>
                                 <hr className="border-slate-700/40" />
                                 <p>Insert your Google Cloud YouTube Data API v3 Key below to activate network syncing:</p>
                             </div>
@@ -514,6 +517,44 @@
                                     type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
                                     placeholder="AIzaSy..." className={`w-full ${inp} border rounded-lg px-3 py-2 font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors`}
                                 />
+                            </div>
+
+                            {/* API Example / Extra Fields Info */}
+                            <div className="pt-4 border-t border-slate-700/30">
+                                <h4 className="font-semibold text-sm mb-2">📡 Other YouTube Data API v3 Data</h4>
+                                <p className="text-[11px] text-slate-400 mb-3">Below is a single item from the uploads playlist response. The API also provides <strong>video statistics</strong> (viewCount, likeCount, commentCount), <strong>contentDetails</strong> (duration, definition, caption), <strong>snippet thumbnails</strong>, tags, category, and live broadcast info.</p>
+                                <pre className={`bg-slate-950 text-emerald-300 text-[10px] rounded-lg p-3 overflow-x-auto whitespace-pre-wrap border border-slate-700 font-mono`}>
+{`{
+  "kind": "youtube#playlistItem",
+  "snippet": {
+    "publishedAt": "2024-03-15T14:30:00Z",
+    "channelId": "UC...",
+    "title": "Market Update - March 2024",
+    "description": "In this video...",
+    "thumbnails": {
+      "default":  {"url":"https://...","width":120,"height":90},
+      "medium":   {"url":"https://...","width":320,"height":180},
+      "high":     {"url":"https://...","width":480,"height":360}
+    },
+    "resourceId": {"kind":"youtube#video","videoId":"dQw4w9WgXcQ"},
+    "videoOwnerChannelTitle":"Channel Name",
+    "videoOwnerChannelId":"UC...",
+    "playlistId":"UU...",
+    "position":0
+  },
+  "contentDetails": {
+    "videoId":"dQw4w9WgXcQ",
+    "startAt":"0",
+    "endAt":null
+  }
+}`}
+                                </pre>
+                                <ul className="text-[11px] text-slate-400 mt-3 space-y-1 list-disc pl-4">
+                                    <li><strong>snippet</strong>: title, description, publishedAt, thumbnails (default/medium/high), tags, categoryId, liveBroadcastContent</li>
+                                    <li><strong>contentDetails</strong>: videoId, duration, dimension (2d/3d), definition (hd/sd), caption, licensedContent</li>
+                                    <li><strong>statistics</strong> (via <code>videos.list</code>): viewCount, likeCount, favoriteCount, commentCount</li>
+                                    <li><strong>status</strong>: uploadStatus, privacyStatus, embeddable, publicStatsViewable</li>
+                                </ul>
                             </div>
                         </div>
                     )}
