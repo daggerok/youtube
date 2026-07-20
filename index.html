@@ -1,317 +1,435 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Channel Content Fetcher</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <!-- Lucide Icons для красивых иконок -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        /* Кастомный скроллбар для таблицы */
-        .custom-scrollbar::-webkit-scrollbar {
-            height: 6px;
-            width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #1f2937;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #4b5563;
-            border-radius: 3px;
-        }
-    </style>
-</head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans antialiased">
+    <title>YouTube Channel Content Dashboard</title>
 
-    <div class="max-w-md md:max-w-4xl mx-auto px-4 py-8">
-        <!-- Хедер -->
-        <header class="text-center mb-8">
-            <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-red-500 to-orange-400 bg-clip-text text-transparent flex items-center justify-center gap-2">
-                <i data-lucide="youtube" class="w-8 h-8 text-red-500"></i> YT Media Fetcher
-            </h1>
-            <p class="text-gray-400 text-sm mt-2">Получите список видео, стримов и Shorts в удобной таблице</p>
-        </header>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap" rel="stylesheet">
 
-        <!-- Форма ввода -->
-        <div class="bg-gray-800 rounded-2xl p-5 shadow-xl border border-gray-700/50 mb-6">
-            <label for="channel-input" class="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
-                Ссылка на канал или RSS ID
-            </label>
-            <div class="flex flex-col md:flex-row gap-3">
-                <div class="relative flex-1">
-                    <input 
-                        type="text" 
-                        id="channel-input" 
-                        placeholder="Например: https://www.youtube.com/@InnerCircleTrader" 
-                        value="https://www.youtube.com/@InnerCircleTrader"
-                        class="w-full bg-gray-900 border border-gray-600 rounded-xl px-4 py-3.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
-                    >
-                </div>
-                <button 
-                    id="fetch-btn"
-                    class="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-medium text-sm px-6 py-3.5 rounded-xl transition-all duration-200 active:scale-98 flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-900/20"
-                >
-                    <i data-lucide="download" class="w-4 h-4"></i>
-                    <span>Загрузить</span>
-                </button>
-            </div>
-            
-            <!-- Инфо-нота о специфике работы Client-side -->
-            <p class="text-[11px] text-gray-500 mt-3 flex items-center gap-1.5">
-                <i data-lucide="info" class="w-3.5 h-3.5 flex-shrink-0"></i>
-                Примечание: Без бэкенда парсинг по юзернейму использует RSS-фид (последние 15 видео). Для полной истории вставьте ваш YouTube API Key в код.
-            </p>
-        </div>
-
-        <!-- Фильтры и статистика (Скрыты по дефолту) -->
-        <div id="meta-panel" class="hidden current-filters bg-gray-800/50 border border-gray-700/30 rounded-xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
-            <div class="flex items-center gap-2 text-xs text-gray-400">
-                <span class="px-2.5 py-1 bg-gray-700 rounded-md text-gray-200 font-mono id-badge">Записей: <span id="count-total">0</span></span>
-            </div>
-            <div class="flex gap-1.5 bg-gray-900 p-1 rounded-lg border border-gray-700 text-xs">
-                <button onclick="filterType('all')" class="type-filter-btn px-3 py-1.5 rounded-md bg-gray-700 text-white font-medium">Все</button>
-                <button onclick="filterType('Video')" class="type-filter-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white">Видео</button>
-                <button onclick="filterType('Live')" class="type-filter-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white">Стримы</button>
-                <button onclick="filterType('Shorts')" class="type-filter-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white">Shorts</button>
-            </div>
-        </div>
-
-        <!-- Лоадер -->
-        <div id="loader" class="hidden text-center py-12 animate-pulse">
-            <div class="inline-block w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-            <p class="text-gray-400 text-sm">Сканируем медиа-данные канала...</p>
-        </div>
-
-        <!-- Результаты: Мобильный вид (Карточки) + Десктоп (Таблица) -->
-        <div id="results-container" class="hidden">
-            
-            <!-- Десктопная таблица (md и выше) -->
-            <div class="hidden md:block bg-gray-800 rounded-2xl overflow-hidden shadow-xl border border-gray-700/60">
-                <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="bg-gray-700/50 text-gray-300 uppercase text-[11px] font-bold tracking-wider border-b border-gray-700">
-                                <th class="px-6 py-4 w-48">Datetime</th>
-                                <th class="px-6 py-4 w-32">Тип</th>
-                                <th class="px-6 py-4">Name</th>
-                                <th class="px-6 py-4 text-right w-24">URL</th>
-                            </tr>
-                        </thead>
-                        <tbody id="table-body" class="divide-y divide-gray-700/50 text-sm text-gray-300">
-                            <!-- Рендеринг через JS -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Мобильная адаптивная лента (вместо громоздкой таблицы на смартфонах) -->
-            <div id="mobile-cards" class="block md:hidden space-y-3">
-                <!-- Рендеринг через JS -->
-            </div>
-
-        </div>
-
-        <!-- Пустое состояние / Ошибка -->
-        <div id="empty-state" class="text-center py-16 bg-gray-800/20 border border-dashed border-gray-700 rounded-2xl">
-            <i data-lucide="folder-open" class="w-12 h-12 text-gray-600 mx-auto mb-3"></i>
-            <p class="text-gray-500 text-sm">Таблица пуста. Введите ссылку и нажмите «Загрузить».</p>
-        </div>
-
-    </div>
-
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        // Инициализация красивых иконок Lucide
-        lucide.createIcons();
-
-        // Конфиг (Если у тебя есть API ключ, вставь его сюда для обхода лимитов RSS)
-        const YOUTUBE_API_KEY = ""; 
-
-        let allData = [];
-        let currentFilter = 'all';
-
-        const channelInput = document.getElementById('channel-input');
-        const fetchBtn = document.getElementById('fetch-btn');
-        const loader = document.getElementById('loader');
-        const resultsContainer = document.getElementById('results-container');
-        const emptyState = document.getElementById('empty-state');
-        const tableBody = document.getElementById('table-body');
-        const mobileCards = document.getElementById('mobile-cards');
-        const metaPanel = document.getElementById('meta-panel');
-        const countTotal = document.getElementById('count-total');
-
-        // Обработка клика и Enter
-        fetchBtn.addEventListener('click', fetchData);
-        channelInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') fetchData();
-        });
-
-        async function fetchData() {
-            const rawUrl = channelInput.value.trim();
-            if (!rawUrl) return alert('Пожалуйста, введите ссылку на канал');
-
-            // Показываем лоадер
-            loader.classList.remove('hidden');
-            resultsContainer.classList.add('hidden');
-            emptyState.classList.add('hidden');
-            metaPanel.classList.add('hidden');
-
-            try {
-                // Имитируем умный клиентский сборщик данных
-                // Извлекаем юзернейм (например, @InnerCircleTrader)
-                let username = rawUrl.split('@')[1]?.split('/')[0] || rawUrl;
-                
-                // В реальном чистом JS без API-ключа мы стучимся к валидному RSS фиду через конвертер 
-                // Для InnerCircleTrader фид формируется на лету. 
-                // Хак: для точного RSS нужен ID канала (UC...). Если введен @username, мы берем стабильный Mock/RSS-транслятор.
-                
-                // Для демонстрации идеальной структуры UI генерируем реалистичный набор данных 
-                // (включая стримы, видео и шортсы именно этого автора), чтобы ты сразу увидел UI в действии.
-                allData = await mockOrFetchYoutubeData(username);
-
-                if(allData.length === 0) {
-                    throw new Error("Данные не найдены");
-                }
-
-                renderData();
-                
-                loader.classList.add('hidden');
-                resultsContainer.classList.remove('hidden');
-                metaPanel.classList.remove('hidden');
-            } catch (error) {
-                loader.classList.add('hidden');
-                emptyState.classList.remove('hidden');
-                alert('Не удалось получить данные. Проверьте ссылку или настройки сети.');
-            }
-        }
-
-        // Логика определения типа контента и маппинга
-        function renderData() {
-            tableBody.innerHTML = '';
-            mobileCards.innerHTML = '';
-
-            const filtered = allData.filter(item => {
-                if (currentFilter === 'all') return true;
-                return item.type === currentFilter;
-            });
-
-            countTotal.innerText = filtered.length;
-
-            if(filtered.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="4" class="text-center py-8 text-gray-500">Нет элементов данного типа</td></tr>`;
-                mobileCards.innerHTML = `<p class="text-center py-4 text-gray-500 text-sm">Нет элементов данного типа</p>`;
-                return;
-            }
-
-            filtered.forEach(item => {
-                // Цвета бейджей в зависимости от типа медиа
-                let badgeColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-                if (item.type === 'Live') badgeColor = 'bg-red-500/10 text-red-400 border-red-500/20';
-                if (item.type === 'Shorts') badgeColor = 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-
-                // Форматирование даты
-                const dateFormatted = new Date(item.datetime).toLocaleString('ru-RU', {
-                    year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit'
-                });
-
-                // 1. Рендеринг строки таблицы (Десктоп)
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-gray-700/30 transition-colors";
-                tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-xs font-mono text-gray-400">${dateFormatted}</td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="px-2 py-0.5 text-[11px] font-medium border rounded-md ${badgeColor}">${item.type}</span>
-                    </td>
-                    <td class="px-6 py-4 font-medium text-gray-100 max-w-xs md:max-w-md truncate" title="${item.name}">
-                        ${item.name}
-                    </td>
-                    <td class="px-6 py-4 text-right whitespace-nowrap text-sm">
-                        <a href="${item.url}" target="_blank" class="text-red-400 hover:text-red-300 inline-flex items-center gap-1 font-medium transition-colors">
-                            <span>Open</span> <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                        </a>
-                    </td>
-                `;
-                tableBody.appendChild(tr);
-
-                // 2. Рендеринг карточки (Mobile-First подход)
-                const card = document.createElement('div');
-                card.className = "bg-gray-800 border border-gray-700/60 rounded-xl p-4 shadow-sm space-y-2";
-                card.innerHTML = `
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="px-2 py-0.5 text-[10px] font-semibold border rounded-md ${badgeColor}">${item.type}</span>
-                        <span class="text-[11px] font-mono text-gray-500">${dateFormatted}</span>
-                    </div>
-                    <h3 class="font-medium text-sm text-gray-200 line-clamp-2">${item.name}</h3>
-                    <div class="pt-1 flex justify-end">
-                        <a href="${item.url}" target="_blank" class="w-full text-center bg-gray-700/60 hover:bg-gray-700 text-xs py-2 rounded-lg text-red-400 font-medium inline-flex items-center justify-center gap-1.5 transition-all">
-                            <span>Смотреть на YouTube</span> <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                        </a>
-                    </div>
-                `;
-                mobileCards.appendChild(card);
-            });
-
-            // Обновляем иконки во вновь созданных элементах
-            lucide.createIcons();
-        }
-
-        function filterType(type) {
-            currentFilter = type;
-            // Смена активного класса на кнопках
-            document.querySelectorAll('.type-filter-btn').forEach(btn => {
-                btn.className = "type-filter-btn px-3 py-1.5 rounded-md text-gray-400 hover:text-white";
-            });
-            const event = window.event;
-            if(event) event.target.className = "type-filter-btn px-3 py-1.5 rounded-md bg-gray-700 text-white font-medium";
-            
-            renderData();
-        }
-
-        // Имитация умного сборщика контента ICT для тестов (смешанный стек медиа)
-        async function mockOrFetchYoutubeData(username) {
-            await new Promise(resolve => setTimeout(resolve, 1200)); // Эффект загрузки
-            
-            return [
-                {
-                    datetime: "2026-07-19T18:30:00Z",
-                    type: "Live",
-                    name: "ICT Mentorship 2026 - Live Tape Reading & Market Structure Analysis",
-                    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                },
-                {
-                    datetime: "2026-07-18T14:00:00Z",
-                    type: "Video",
-                    name: "How To Find High Probability Order Blocks (Algorithmic Framework)",
-                    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                },
-                {
-                    datetime: "2026-07-17T21:15:00Z",
-                    type: "Shorts",
-                    name: "The exact midnight open secret everyone misses 🤯",
-                    url: "https://www.youtube.com/shorts/sample"
-                },
-                {
-                    datetime: "2026-07-15T09:00:00Z",
-                    type: "Video",
-                    name: "Trading Institutional Liquidity Voids Explained",
-                    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                },
-                {
-                    datetime: "2026-07-12T17:00:00Z",
-                    type: "Live",
-                    name: "PM Session Review - SPX & Nasdaq Delivery",
-                    url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                },
-                {
-                    datetime: "2026-07-10T11:00:00Z",
-                    type: "Shorts",
-                    name: "Why your stop loss keeps getting hunted!",
-                    url: "https://www.youtube.com/shorts/sample2"
-                }
-            ];
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] } } }
         }
     </script>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+
+    <style>
+        @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        .animate-fade-in{animation:fadeIn .4s ease-out}
+        .dark-scroll::-webkit-scrollbar{height:6px;width:6px}
+        .dark-scroll::-webkit-scrollbar-track{background:transparent}
+        .dark-scroll::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
+        .dark-scroll{scrollbar-width:thin;scrollbar-color:#334155 transparent}
+        
+        .light-scroll::-webkit-scrollbar{height:6px;width:6px}
+        .light-scroll::-webkit-scrollbar-track{background:transparent}
+        .light-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+        .light-scroll{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
+        
+        .console-wrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease-out,opacity .25s ease-out;opacity:0}
+        .console-wrap.open{grid-template-rows:1fr;opacity:1}
+        .console-inner{overflow:hidden}
+
+        input[type=range].scale-slider{-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;outline:none;cursor:pointer}
+        input[type=range].scale-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;cursor:pointer}
+        input[type=range].scale-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;cursor:pointer;border:none}
+        .dark input[type=range].scale-slider{background:#334155}
+        .dark input[type=range].scale-slider::-webkit-slider-thumb{background:#10b981}
+        .dark input[type=range].scale-slider::-moz-range-thumb{background:#10b981}
+        html:not(.dark) input[type=range].scale-slider{background:#cbd5e1}
+        html:not(.dark) input[type=range].scale-slider::-webkit-slider-thumb{background:#059669}
+        html:not(.dark) input[type=range].scale-slider::-moz-range-thumb{background:#059669}
+    
+        html.dark, html.dark body { background:#020617 !important; color:#f1f5f9 !important; color-scheme: dark; }
+        html.dark table { color:#e2e8f0; }
+        html.dark table td { color:inherit; }
+        html.dark table th { color:#94a3b8; }
+    </style>
+</head>
+<body class="min-h-screen">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    const LS_P = 'yt-dashboard-prefs';
+    const lp = () => { try { return JSON.parse(localStorage.getItem(LS_P)) || {}; } catch { return {}; } };
+    const sp = p => { try { localStorage.setItem(LS_P, JSON.stringify(p)); } catch {} };
+
+    const sliderToScale = v => 0.7 + (v / 100) * 0.8; 
+    const DEFAULT_SCALE_SLIDER = 50;
+
+    const Pill = ({ value, options, onChange, dark }) => (
+        <div className={`flex-shrink-0 flex items-center rounded-lg p-0.5 border ${dark ? 'bg-slate-800 border-slate-700' : 'bg-slate-100 border-slate-200'}`}>
+            {options.map(opt => {
+                const k = typeof opt === 'string' ? opt : opt.k;
+                const l = typeof opt === 'string' ? opt : opt.l;
+                return (
+                    <button key={k} onClick={() => onChange(k)} 
+                            className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${value === k ? 'bg-emerald-500 text-white shadow-sm' : dark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>
+                        {l}
+                    </button>
+                );
+            })}
+        </div>
+    );
+
+    const App = () => {
+        const prefs = useMemo(() => lp(), []);
+
+        const [apiKey, setApiKey] = useState(prefs.apiKey || '');
+        const [channelUrl, setChannelUrl] = useState(prefs.channelUrl || 'https://www.youtube.com/@InnerCircleTrader');
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+        const [dark, setDark] = useState(prefs.dark !== false);
+        const [scaleSlider, setScaleSlider] = useState(prefs.scaleSlider ?? DEFAULT_SCALE_SLIDER);
+        const [filter, setFilter] = useState('All');
+        const [videos, setVideos] = useState(null);
+        const [showSettings, setShowSettings] = useState(!prefs.apiKey);
+        const [logs, setLogs] = useState([]);
+
+        const scale = sliderToScale(scaleSlider);
+        const log = msg => setLogs(p => [...p.slice(-19), msg]);
+
+        useEffect(() => {
+            sp({ apiKey, channelUrl, dark, scaleSlider });
+        }, [apiKey, channelUrl, dark, scaleSlider]);
+
+        useEffect(() => {
+            document.documentElement.classList.toggle('dark', dark);
+            const bg = dark ? '#020617' : '#f8fafc';
+            const text = dark ? '#f1f5f9' : '#0f172a';
+            document.documentElement.style.backgroundColor = bg;
+            document.documentElement.style.color = text;
+            document.body.style.backgroundColor = bg;
+            document.body.style.color = text;
+        }, [dark]);
+
+        const extractUsername = (url) => {
+            const match = url.match(/@([a-zA-Z0-9_\-\.]+)/);
+            return match ? match[1] : url.trim();
+        };
+
+        const handleFetch = async () => {
+            if (!apiKey.trim()) {
+                setError("Google API Key is required. Please check settings.");
+                setShowSettings(true);
+                return;
+            }
+            if (!channelUrl.trim()) return;
+
+            setLoading(true);
+            setError(null);
+            setVideos(null);
+            setLogs([]);
+
+            const handle = extractUsername(channelUrl);
+            log(`🔍 Resolving channel handle: @${handle}`);
+
+            try {
+                // Step 1: Get Channel ID by handle name using search endpoint
+                const channelSearchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handle)}&key=${apiKey}`;
+                const chRes = await fetch(channelSearchUrl);
+                if (!chRes.ok) throw new Error(`Failed to resolve channel handle. Status: ${chRes.status}`);
+                const chData = await chRes.json();
+                
+                if (!chData.items || chData.items.length === 0) {
+                    throw new Error(`No channel found for handle: @${handle}`);
+                }
+
+                const channelId = chData.items[0].id.channelId;
+                const channelTitle = chData.items[0].snippet.title;
+                log(`✅ Found Channel: "${channelTitle}" (ID: ${channelId})`);
+
+                // Step 2: Fetch recent videos from channel
+                log(`📥 Fetching media assets from YouTube Data API...`);
+                const searchVideosUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}`;
+                const vRes = await fetch(searchVideosUrl);
+                if (!vRes.ok) throw new Error(`YouTube API Error. Status: ${vRes.status}`);
+                const vData = await vRes.json();
+
+                if (!vData.items) throw new Error("No data structure returned from YouTube API.");
+
+                const processed = vData.items.map(item => {
+                    const title = item.snippet.title;
+                    const isLive = item.snippet.liveBroadcastContent === 'live' || item.snippet.liveBroadcastContent === 'upcoming';
+                    
+                    // Хак определения Shorts на чистом API без дополнительных квот: проверка структуры заголовка или флага
+                    // По умолчанию помечаем как Video/Live, Shorts можно определять опционально.
+                    let type = isLive ? 'Live' : 'Video';
+                    if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) {
+                        type = 'Shorts';
+                    }
+
+                    return {
+                        datetime: item.snippet.publishedAt,
+                        type,
+                        name: title,
+                        url: `https://www.youtube.com/watch?v=${item.id.videoId}`
+                    };
+                });
+
+                log(`✅ Successfully loaded ${processed.length} assets.`);
+                setVideos(processed);
+            } catch (err) {
+                log(`❌ Error: ${err.message}`);
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const filteredVideos = useMemo(() => {
+            if (!videos) return [];
+            if (filter === 'All') return videos;
+            return videos.filter(v => v.type === filter);
+        }, [videos, filter]);
+
+        const getBadgeStyle = type => {
+            if (type === 'Live') return dark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200';
+            if (type === 'Shorts') return dark ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-purple-50 text-purple-700 border-purple-200';
+            return dark ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-blue-50 text-blue-700 border-blue-200';
+        };
+
+        const formatDate = isoStr => {
+            return new Date(isoStr).toLocaleString('en-US', {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            });
+        };
+
+        const bg = dark ? 'bg-slate-950/95 text-slate-100' : 'bg-white/95 text-slate-900';
+        const bdr = dark ? 'border-slate-800' : 'border-slate-200';
+        const card = dark ? 'bg-slate-800 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-sm';
+        const inp = dark ? 'bg-slate-800 border-slate-700 text-emerald-400' : 'bg-slate-50 border-slate-300 text-emerald-700';
+        const mt = dark ? 'text-slate-400' : 'text-slate-500';
+        const t1 = dark ? 'text-slate-100' : 'text-slate-800';
+        const sB = dark ? 'bg-slate-800' : 'bg-white';
+        const hR = dark ? 'hover:bg-slate-700/20' : 'hover:bg-slate-50';
+        const scCls = dark ? 'dark-scroll' : 'light-scroll';
+
+        const tblFs = `${Math.round(14 * scale)}px`;
+        const tblHFs = `${Math.round(11 * scale)}px`;
+        const tblCellPy = `${Math.round(10 * scale)}px`;
+
+        return (
+            <React.Fragment>
+                {/* Navbar */}
+                <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md border-b ${bdr}`}>
+                    <div className="px-4 xl:px-8">
+                        <div className="flex items-center gap-3 py-3">
+                            <button 
+                                onClick={() => setShowSettings(!showSettings)} 
+                                className={`flex-shrink-0 text-xs px-2 py-1.5 rounded transition-colors ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600')}`}
+                                title="Toggle API Settings Guide"
+                            >
+                                ⚙️ Settings
+                            </button>
+                            <div className="flex gap-1.5 flex-shrink-0">
+                                <div className={`h-2.5 w-2.5 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "API Key Present" : "API Key Missing"}/>
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                                <input 
+                                    type="text" 
+                                    value={channelUrl} 
+                                    onChange={e => setChannelUrl(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleFetch()}
+                                    placeholder="YouTube Channel link or handle (@InnerCircleTrader)..." 
+                                    className={`w-full ${inp} border rounded-lg px-3 py-2 font-mono font-medium text-sm focus:outline-none focus:border-emerald-500 transition-colors`}
+                                />
+                            </div>
+
+                            <button 
+                                onClick={handleFetch} 
+                                disabled={loading}
+                                className="flex-shrink-0 flex items-center bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-40"
+                            >
+                                {loading ? (
+                                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"/>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
+                                    </svg>
+                                )}
+                            </button>
+
+                            <button onClick={() => setDark(!dark)} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
+                                {dark ? '☀' : '🌙'}
+                            </button>
+
+                            {videos && (
+                                <Pill value={filter} options={['All', 'Video', 'Live', 'Shorts']} onChange={setFilter} dark={dark} />
+                            )}
+                        </div>
+
+                        {/* Console Log Wrapper */}
+                        <div className={`console-wrap ${logs.length > 0 ? 'open' : ''}`}>
+                            <div className="console-inner">
+                                <div className="pb-2 -mt-1">
+                                    <div className={`${dark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'} border rounded-lg px-3 py-1.5 font-mono text-[11px] overflow-x-auto whitespace-nowrap ${scCls}`}>
+                                        {logs.map((l, i) => (
+                                            <span key={i}>
+                                                {i > 0 && <span className={dark ? 'text-slate-700' : 'text-slate-300'}> · </span>}
+                                                <span className={l.startsWith('✅') ? 'text-emerald-500' : l.startsWith('❌') ? 'text-red-500' : mt}>{l}</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Main View Area */}
+                <div className="px-4 xl:px-8 py-6">
+                    {/* Settings & Guideline Drawer */}
+                    {showSettings && (
+                        <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-4 animate-fade-in`}>
+                            <h3 className="font-bold text-base flex items-center gap-2">🔑 Google Credentials Setup Guide</h3>
+                            <div className="space-y-2 text-xs text-slate-400">
+                                <p>To use this dashboard fully client-side without a backend proxy, you need a standard Google Cloud API key:</p>
+                                <ol className="list-decimal pl-5 space-y-1">
+                                    <li>Go to the <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-emerald-500 hover:underline">Google Cloud Console</a>.</li>
+                                    <li>Create a new project or select an existing one.</li>
+                                    <li>Navigate to <strong>API & Services &gt; Library</strong>.</li>
+                                    <li>Search for <strong className={t1}>"YouTube Data API v3"</strong> and click <strong class="text-emerald-500">Enable</strong> (No active OAuth scopes or spreadsheets scopes are required for basic content querying!).</li>
+                                    <li>Go to <strong>Credentials &gt; Create Credentials &gt; API Key</strong>.</li>
+                                    <li>Copy the generated key and insert it below. It stays in your browser's Local Storage only.</li>
+                                </ol>
+                            </div>
+                            <div className="pt-2">
+                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Your Google API Key</label>
+                                <input 
+                                    type="password"
+                                    value={apiKey}
+                                    onChange={e => setApiKey(e.target.value)}
+                                    placeholder="AIzaSy..."
+                                    className={`w-full ${inp} border rounded-lg px-3 py-2 font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors`}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-xl mb-6 text-sm flex items-start gap-2 animate-fade-in max-w-3xl mx-auto">
+                            <span className="flex-shrink-0 mt-0.5">✕</span>
+                            <span className="flex-1">{error}</span>
+                        </div>
+                    )}
+
+                    {/* Table View */}
+                    {videos && !loading && (
+                        <div className="space-y-6 animate-fade-in">
+                            <div className={`${card} border rounded-xl overflow-hidden shadow-lg`}>
+                                <div className={`px-4 py-3 border-b ${dark ? 'border-slate-700/50' : 'border-slate-200'} bg-gradient-to-r ${dark ? 'from-slate-900/30 to-slate-900/10' : 'from-slate-50 to-slate-100/50'} flex items-center justify-between gap-4`}>
+                                    <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(16 * scale)}px` }}>
+                                        📋 Channel Inventory Index ({filteredVideos.length})
+                                    </h3>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                        <span className={`text-[10px] ${mt}`}>A</span>
+                                        <input 
+                                            type="range" min="0" max="100" value={scaleSlider}
+                                            onChange={e => setScaleSlider(Number(e.target.value))}
+                                            className="scale-slider w-20" title={`Scale: ${Math.round(scale * 100)}%`}
+                                        />
+                                        <span className={`text-xs font-bold ${mt}`}>A</span>
+                                    </div>
+                                </div>
+
+                                {/* Desktop View Table */}
+                                <div className={`hidden md:block overflow-x-auto ${scCls}`}>
+                                    <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
+                                        <thead>
+                                            <tr className={dark ? 'bg-slate-900/50' : 'bg-slate-50'}>
+                                                <th className={`px-4 sticky left-0 z-10 ${sB} font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Datetime</th>
+                                                <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Type</th>
+                                                <th className={`px-4 font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>Name</th>
+                                                <th className={`px-4 text-right font-semibold uppercase tracking-wider ${mt}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>URL</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
+                                            {filteredVideos.map((v, i) => (
+                                                <tr key={i} className={`${hR} transition-colors`}>
+                                                    <td className={`px-4 font-mono ${mt} sticky left-0 z-10 ${sB} whitespace-nowrap`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        {formatDate(v.datetime)}
+                                                    </td>
+                                                    <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        <span className={`px-2 py-0.5 text-[11px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>
+                                                            {v.type}
+                                                        </span>
+                                                    </td>
+                                                    <td className={`px-4 font-medium ${t1} truncate max-w-md`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
+                                                        {v.name}
+                                                    </td>
+                                                    <td className="px-4 text-right whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
+                                                            Open ↗
+                                                        </a>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {filteredVideos.length === 0 && (
+                                                <tr>
+                                                    <td colSpan="4" className={`text-center py-8 ${mt}`}>No results matching criteria.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Mobile Cards View */}
+                                <div className="block md:hidden p-4 space-y-3">
+                                    {filteredVideos.map((v, i) => (
+                                        <div key={i} className={`border rounded-xl p-4 ${dark ? 'bg-slate-900/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'} space-y-2`}>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>
+                                                    {v.type}
+                                                </span>
+                                                <span className="text-[11px] font-mono opacity-60">{formatDate(v.datetime)}</span>
+                                            </div>
+                                            <h4 className={`font-semibold text-sm ${t1} line-clamp-2`}>{v.name}</h4>
+                                            <div className="pt-2">
+                                                <a href={v.url} target="_blank" rel="noreferrer" 
+                                                   className="w-full text-center bg-emerald-500 hover:bg-emerald-400 text-white text-xs py-2 rounded-lg font-bold block transition-all">
+                                                    Watch on YouTube ↗
+                                                </a>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                            </div>
+                        </div>
+                    )}
+
+                    {loading && (
+                        <div className={`text-center py-20 ${mt} flex items-center justify-center gap-3`}>
+                            <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"/>
+                            Querying live Google endpoints...
+                        </div>
+                    )}
+
+                    {!loading && !videos && !error && (
+                        <div className={`text-center py-20 ${mt}`}>
+                            <p className="text-lg">Enter a valid YouTube handle above to run queries</p>
+                            <p className="text-sm mt-1">Make sure you provided your API key inside Settings tab</p>
+                        </div>
+                    )}
+                </div>
+            </React.Fragment>
+        );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
 </body>
 </html>
