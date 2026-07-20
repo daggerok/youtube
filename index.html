@@ -334,12 +334,14 @@
         const handleExportCSV = () => {
             if (!processedVideos || processedVideos.length === 0) return;
 
-            const headers = ['Datetime', 'Type', 'Status', 'Name', 'URL', 'Note'];
+            const headers = ['Datetime', 'Date', 'Time', 'Type', 'Status', 'Name', 'URL', 'Note'];
             const rows = processedVideos.map(v => {
                 const safeName = v.name.replace(/"/g, '""');
                 const d = new Date(v.datetime);
                 const isoStr = d.toISOString(); // yyyy-mm-ddTHH:mm:ss.sssZ
-                return `"${isoStr}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}","${(v.note || '').replace(/"/g, '""')}"`;
+                const dateStr = isoStr.split('T')[0];
+                const timeStr = isoStr.split('T')[1].replace('Z', '');
+                return `"${isoStr}","${dateStr}","${timeStr}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}","${(v.note || '').replace(/"/g, '""')}"`;
             });
 
             const csvContent = [headers.join(','), ...rows].join('\n');
