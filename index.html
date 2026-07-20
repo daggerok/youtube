@@ -102,10 +102,12 @@
         const [currentChannelId, setCurrentChannelId] = useState(null);
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
         const [logs, setLogs] = useState([]);
+        const [editNoteUrl, setEditNoteUrl] = useState(null);
+        const [editNoteText, setEditNoteText] = useState('');
 
         // Persistent Filters & Sort
         const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
-        const [filters, setFilters] = useState(prefs.filters || { datetime: '', type: '', name: '', url: '', status: '' });
+        const [filters, setFilters] = useState(prefs.filters || { datetime: '', type: '', name: '', url: '', status: '', note: '' });
 
         const scale = sliderToScale(scaleSlider);
         const log = msg => setLogs(p => [...p.slice(-19), msg]);
@@ -232,12 +234,14 @@
                 } while (nextPageToken);
 
                 // --- САМЫЙ ВАЖНЫЙ БЛОК: ЗАЩИТА ТВОИХ ОТМЕТОК ---
-                // Создаем быструю карту всех твоих статусов из кэша
+                // Создаем быструю карту всех твоих статусов и заметок из кэша
                 const statusMap = {};
+                const noteMap = {};
                 cachedData.forEach(v => {
                     if (v.status && v.status !== 'unwatched') {
                         statusMap[v.url] = v.status;
                     }
+                    noteMap[v.url] = v.note || '';
                 });
 
                 // Присваиваем статусы новым или обновленным видео
@@ -255,7 +259,8 @@
                         type,
                         name: title,
                         url: videoUrl,
-                        status: statusMap[videoUrl] || 'unwatched' // <-- Бережное восстановление твоих отметок
+                        status: statusMap[videoUrl] || 'unwatched', // <-- Бережное восстановление твоих отметок
+                        note: noteMap[videoUrl] || ''
                     };
                 });
 
@@ -295,6 +300,15 @@
             }
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
+
+        const saveNote = (url, text) => {
+            if (!currentChannelId || !videos) return;
+            const next = videos.map(v => (v.url === url ? { ...v, note: text || '' } : v));
+            setVideos(next);
+            setCache(currentChannelId, next);
+            setEditNoteUrl(null);
+            setEditNoteText('');
+        };
 
         // --- Status Toggle ---
         const toggleStatus = (url) => {
@@ -480,7 +494,7 @@
                                 📥
                             </button>
 
-                            <button onClick={() => setDark(!dark)} title="Toggle dark mode" className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
+                            <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
                                 {dark ? '☀' : '🌙'}
                             </button>
                         </div>
@@ -594,9 +608,10 @@
                                         <tr className={dark ? 'bg-slate-900/50' : 'bg-slate-50'}>
                                             <Th label="Datetime" columnKey="datetime" width="w-44" />
                                             <Th label="Type" columnKey="type" width="w-28" />
-                                            <Th label="Status" columnKey="status" width="w-36" />
                                             <Th label="Name" columnKey="name" />
                                             <Th label="URL" columnKey="url" width="w-24" />
+                                            <Th label="Status" columnKey="status" width="w-36" />
+                                            <Th label="Note" columnKey="note" width="w-48" />
                                         </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
@@ -612,6 +627,14 @@
                                                             {v.type}
                                                         </span>
                                                     </td>
+                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
+                                                        {v.name}
+                                                    </td>
+                                                    <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
+                                                            Open ↗
+                                                        </a>
+                                                    </td>
                                                     <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <button
                                                             onClick={() => toggleStatus(v.url)}
@@ -621,20 +644,44 @@
                                                             {statusMeta.label}
                                                         </button>
                                                     </td>
-                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
-                                                        {v.name}
-                                                    </td>
-                                                    <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
-                                                            Open ↗
-                                                        </a>
+                                                    <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        {editNoteUrl === v.url ? (
+                                                            <input
+                                                                type="text"
+                                                                autoFocus
+                                                                value={editNoteText}
+                                                                onChange={e => setEditNoteText(e.target.value)}
+                                                                onBlur={() => saveNote(v.url, editNoteText)}
+                                                                onKeyDown={e => { if (e.key === 'Enter') saveNote(v.url, editNoteText); if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
+                                                                className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors ${inpFilter}`}
+                                                                title="Edit note"
+                                                            />
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }}
+                                                                title={v.note ? v.note : 'Add note'}
+                                                                className="text-left w-full truncate text-[11px] px-2 py-1 rounded border hover:bg-emerald-50 hover:border-emerald-300 dark:hover:bg-emerald-900/30 dark:hover:border-emerald-700 transition-colors"
+                                                            >
+                                                                <span className="inline-flex items-center gap-1">
+                                                                    {(v.note && v.note.trim()) ? (
+                                                                        <span className={`${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                                                                            {v.note.length > 30 ? v.note.slice(0, 30) + '…' : v.note}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className={`${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                                                                            ✏️ Add note
+                                                                        </span>
+                                                                    )}
+                                                                </span>
+                                                            </button>
+                                                        )}
                                                     </td>
                                                 </tr>
                                             );
                                         })}
                                         {processedVideos.length === 0 && (
                                             <tr>
-                                                <td colSpan="5" className={`text-center py-12 ${mt}`}>No data matched the current column filters.</td>
+                                                <td colSpan="6" className={`text-center py-12 ${mt}`}>No data matched the current column filters.</td>
                                             </tr>
                                         )}
                                         </tbody>
@@ -658,6 +705,13 @@
                                                     </div>
                                                 </div>
                                                 <h4 className={`font-semibold text-sm ${t1} line-clamp-2`}>{v.name}</h4>
+                                                {v.note ? (
+                                                    <div className="text-[11px] text-slate-400 truncate">
+                                                        📝 {v.note.length > 40 ? v.note.slice(0, 40) + '…' : v.note}
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }} className="text-[11px] text-slate-400 hover:text-emerald-500 transition-colors" title="Add note">✏️ Add note</button>
+                                                )}
                                                 <div className="pt-2 flex items-center justify-between gap-2">
                                                     <button onClick={() => toggleStatus(v.url)} title="Toggle watch status" className={`flex-1 text-center text-xs py-2 rounded-lg font-bold border transition-all ${statusMeta.cls}`}>
                                                         {statusMeta.label}
