@@ -17,7 +17,7 @@
         }
     </script>
 
-    <!-- React, ReactDOM, Babel (React ES6 Preset - No TS to avoid browser parser bugs) -->
+    <!-- React, ReactDOM, Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
@@ -59,13 +59,13 @@
 <div id="root"></div>
 
 <script type="text/babel" data-presets="react">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
     const LS_P = 'yt-dashboard-prefs';
     const lp = () => { try { return JSON.parse(localStorage.getItem(LS_P)) || {}; } catch { return {}; } };
     const sp = p => { try { localStorage.setItem(LS_P, JSON.stringify(p)); } catch {} };
 
-    // --- Caching Infrastructure ---
+    // --- Data Storage ---
     const getCache = (channelId) => {
         try { return JSON.parse(localStorage.getItem(`yt-data-${channelId}`)) || null; } catch { return null; }
     };
@@ -73,7 +73,6 @@
         try { localStorage.setItem(`yt-data-${channelId}`, JSON.stringify(data)); } catch {}
     };
 
-    // Metadata Map: Handle -> { channelId, uploadsPlaylistId, title }
     const getMetaMap = () => {
         try { return JSON.parse(localStorage.getItem(`yt-meta-map`)) || {}; } catch { return {}; }
     };
@@ -91,6 +90,7 @@
     const App = () => {
         const prefs = useMemo(() => lp(), []);
 
+        // Учитываем настройки, включая сохраненные фильтры и сортировку
         const [apiKey, setApiKey] = useState(prefs.apiKey || '');
         const [channelUrl, setChannelUrl] = useState(prefs.channelUrl || 'https://www.youtube.com/@InnerCircleTrader');
         const [loading, setLoading] = useState(false);
@@ -103,13 +103,18 @@
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
         const [logs, setLogs] = useState([]);
 
-        const [sortConfig, setSortConfig] = useState({ key: 'datetime', direction: 'desc' });
-        const [filters, setFilters] = useState({ datetime: '', type: '', name: '', url: '', status: '' });
+        // Persistent Filters & Sort
+        const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
+        const [filters, setFilters] = useState(prefs.filters || { datetime: '', type: '', name: '', url: '', status: '' });
 
         const scale = sliderToScale(scaleSlider);
         const log = msg => setLogs(p => [...p.slice(-19), msg]);
+        const isInitialMount = useRef(true);
 
-        useEffect(() => { sp({ apiKey, channelUrl, dark, scaleSlider }); }, [apiKey, channelUrl, dark, scaleSlider]);
+        // Сохраняем все состояния UI и настроек в кэш приложения при любом их изменении
+        useEffect(() => {
+            sp({ apiKey, channelUrl, dark, scaleSlider, sortConfig, filters });
+        }, [apiKey, channelUrl, dark, scaleSlider, sortConfig, filters]);
 
         useEffect(() => {
             document.documentElement.classList.toggle('dark', dark);
@@ -126,10 +131,10 @@
             return match ? match[1] : url.trim();
         };
 
-        // modes: 'load' (cache only), 'update' (fetch new until existing), 'refresh' (fetch all)
         const handleFetch = async (mode = 'load') => {
+            // Защита: не блокируем авто-загрузку из кэша, если нет API ключа
             if (!apiKey.trim() && mode !== 'load') {
-                setError("Google API Key is required for fetching. Please check settings.");
+                setError("Google API Key is required for fetching new data. Please check settings.");
                 setShowSettings(true);
                 return;
             }
@@ -137,14 +142,23 @@
 
             setLoading(true);
             setError(null);
-            setLogs([]);
+
+            // Очищаем логи только если это ручное действие
+            if (mode !== 'load') setLogs([]);
 
             const handle = extractUsername(channelUrl);
             let meta = getMetaMap()[handle];
 
             try {
-                // 1. Resolve Channel Metadata (Use Cache if possible)
+                // 1. Разрешение метаданных (Если нет кэша или запрошен полный сброс)
                 if (!meta || mode === 'refresh') {
+                    if (!apiKey.trim()) {
+                        if (mode === 'load') {
+                            setLoading(false);
+                            return; // Молча выходим, так как нужен ключ для первого поиска
+                        }
+                    }
+
                     log(`🔍 API: Resolving channel metadata: @${handle}`);
                     const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(handle)}&key=${apiKey}`;
                     const sRes = await fetch(searchUrl);
@@ -164,28 +178,29 @@
                         uploadsPlaylistId: chData.items[0].contentDetails.relatedPlaylists.uploads
                     };
                     saveMetaMap(handle, meta);
-                } else {
-                    log(`⚡ Resolved @${handle} from local meta cache (0 API calls).`);
+                } else if (mode !== 'load') {
+                    log(`⚡ Resolved @${handle} metadata from local map.`);
                 }
 
                 setCurrentChannelId(meta.channelId);
                 const cachedData = getCache(meta.channelId) || [];
 
-                // 2. LOAD MODE
+                // 2. РЕЖИМ LOAD (Чтение кэша без запросов)
                 if (mode === 'load') {
                     if (cachedData.length > 0) {
-                        log(`📦 Loaded ${cachedData.length} items from LocalStorage.`);
+                        log(`📦 Auto-loaded ${cachedData.length} items with preserved watch statuses.`);
                         setVideos(cachedData);
                         setLoading(false);
                         return;
                     } else {
-                        log(`⚠️ No local cache found. Falling back to full refresh.`);
-                        mode = 'refresh'; // escalate to full refresh if no cache
+                        // Если кэша нет, переходим в режим refresh (если есть ключ)
+                        if (apiKey.trim()) mode = 'refresh';
+                        else { setLoading(false); return; }
                     }
                 }
 
-                // 3. UPDATE OR REFRESH MODE (API Fetch)
-                log(`📥 Initiating ${mode} from Uploads Playlist: ${meta.uploadsPlaylistId}...`);
+                // 3. РЕЖИМ UPDATE / REFRESH
+                log(`📥 Syncing ${mode === 'update' ? 'new videos only' : 'entire archive'} from Uploads Playlist...`);
                 let newItems = [];
                 let nextPageToken = '';
                 let pageCount = 0;
@@ -194,14 +209,13 @@
                 do {
                     const playlistItemsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${meta.uploadsPlaylistId}&maxResults=50&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
                     const pRes = await fetch(playlistItemsUrl);
-                    if (!pRes.ok) throw new Error(`PlaylistItems API Error. Status: ${pRes.status}`);
+                    if (!pRes.ok) throw new Error(`Playlist API Error. Status: ${pRes.status}`);
                     const pData = await pRes.json();
 
                     if (pData.items) {
                         for (let item of pData.items) {
                             const videoId = item.snippet.resourceId.videoId;
-
-                            // If update mode, check if we already have this video locally
+                            // Update mode logic: stop if video is already known
                             if (mode === 'update' && cachedData.some(v => v.url.includes(videoId))) {
                                 hitExisting = true;
                                 break;
@@ -210,17 +224,28 @@
                         }
                     }
 
-                    if (hitExisting) break; // Break API pagination loop
+                    if (hitExisting) break; // Прерываем итерацию страниц, так как дошли до старых видео
 
                     nextPageToken = pData.nextPageToken;
                     pageCount++;
-                    log(`⏳ Parsed page ${pageCount} (Fetched ${newItems.length} new records)...`);
+                    log(`⏳ Synced page ${pageCount} (Found ${newItems.length} new records)...`);
                 } while (nextPageToken);
 
-                // 4. Map & Merge Data
+                // --- САМЫЙ ВАЖНЫЙ БЛОК: ЗАЩИТА ТВОИХ ОТМЕТОК ---
+                // Создаем быструю карту всех твоих статусов из кэша
+                const statusMap = {};
+                cachedData.forEach(v => {
+                    if (v.status && v.status !== 'unwatched') {
+                        statusMap[v.url] = v.status;
+                    }
+                });
+
+                // Присваиваем статусы новым или обновленным видео
                 const processedNew = newItems.map(item => {
                     const title = item.snippet.title;
                     const videoId = item.snippet.resourceId.videoId;
+                    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
                     let type = 'Video';
                     if (title.toLowerCase().includes('#shorts') || title.toLowerCase().includes('shorts')) type = 'Shorts';
                     else if (title.toLowerCase().includes('live') || title.toLowerCase().includes('stream')) type = 'Live';
@@ -229,31 +254,43 @@
                         datetime: item.snippet.publishedAt,
                         type,
                         name: title,
-                        url: `https://www.youtube.com/watch?v=${videoId}`,
-                        status: 'unwatched' // Default state
+                        url: videoUrl,
+                        status: statusMap[videoUrl] || 'unwatched' // <-- Бережное восстановление твоих отметок
                     };
                 });
 
                 let finalData;
                 if (mode === 'update') {
-                    finalData = [...processedNew, ...cachedData]; // Prepend new items
-                    log(`✅ Update complete. Added ${processedNew.length} new items. Total: ${finalData.length}`);
+                    finalData = [...processedNew, ...cachedData]; // Приклеиваем новые сверху
+                    log(`✅ Smart Update complete. Merged ${processedNew.length} new items. Total: ${finalData.length}`);
                 } else {
-                    finalData = processedNew; // Full overwrite
-                    log(`✅ Full refresh complete. Synced ${finalData.length} items.`);
+                    finalData = processedNew; // Полная замена (статусы всё равно сохранены благодаря statusMap)
+                    log(`✅ Full Refresh complete. Resynced ${finalData.length} items while preserving your progress.`);
                 }
 
                 setVideos(finalData);
-                setCache(meta.channelId, finalData);
+                setCache(meta.channelId, finalData); // Сохраняем в кэш обновленный массив
             } catch (err) {
-                log(`❌ Exception: ${err.message}`);
+                log(`❌ Error: ${err.message}`);
                 setError(err.message);
             } finally {
                 setLoading(false);
             }
         };
 
-        // --- 3-State Toggle Logic ---
+        // --- Auto-Load Hook ---
+        // Автоматически нажимает "Load" при открытии страницы, чтобы сразу показать твой прогресс
+        useEffect(() => {
+            if (isInitialMount.current) {
+                isInitialMount.current = false;
+                if (channelUrl) {
+                    handleFetch('load');
+                }
+            }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []);
+
+        // --- Status Toggle ---
         const toggleStatus = (url) => {
             if (!currentChannelId || !videos) return;
 
@@ -269,16 +306,16 @@
             });
 
             setVideos(nextVideos);
-            setCache(currentChannelId, nextVideos); // Persist immediately
+            setCache(currentChannelId, nextVideos); // Мгновенное сохранение в локальное хранилище
         };
 
-        // --- CSV Export Logic ---
+        // --- CSV Export ---
         const handleExportCSV = () => {
             if (!processedVideos || processedVideos.length === 0) return;
 
             const headers = ['Datetime', 'Type', 'Status', 'Name', 'URL'];
             const rows = processedVideos.map(v => {
-                const safeName = v.name.replace(/"/g, '""'); // Escape quotes for CSV
+                const safeName = v.name.replace(/"/g, '""'); // Экранирование кавычек для CSV
                 return `"${v.datetime}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}"`;
             });
 
@@ -290,6 +327,7 @@
             link.click();
         };
 
+        // --- Sort & Filter Actions ---
         const requestSort = (key) => {
             let direction = 'asc';
             if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
@@ -300,10 +338,12 @@
             setFilters(prev => ({ ...prev, [key]: value }));
         };
 
+        // --- Core Processed Data ---
         const processedVideos = useMemo(() => {
             if (!videos) return [];
             let result = [...videos];
 
+            // Применяем фильтры
             Object.keys(filters).forEach(key => {
                 const filterVal = filters[key].toLowerCase();
                 if (filterVal) {
@@ -314,6 +354,7 @@
                 }
             });
 
+            // Применяем сортировку
             result.sort((a, b) => {
                 const aVal = a[sortConfig.key] || '';
                 const bVal = b[sortConfig.key] || '';
@@ -325,7 +366,7 @@
             return result;
         }, [videos, sortConfig, filters]);
 
-        // Rendering Helpers
+        // --- Visual Helpers ---
         const getBadgeStyle = (type) => {
             if (type === 'Live') return dark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200';
             if (type === 'Shorts') return dark ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-purple-50 text-purple-700 border-purple-200';
@@ -333,8 +374,8 @@
         };
 
         const getStatusDisplay = (status) => {
-            if (status === 'finished') return { label: '🟢 Finished', cls: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' };
-            if (status === 'started') return { label: '🟡 Started', cls: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20' };
+            if (status === 'finished') return { label: '🟢 Finished', cls: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20 shadow-sm shadow-emerald-500/10' };
+            if (status === 'started') return { label: '🟡 Started', cls: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20 shadow-sm shadow-yellow-500/10' };
             return { label: '⚪️ Unwatched', cls: dark ? 'text-slate-400 bg-slate-800 border-slate-700' : 'text-slate-500 bg-slate-100 border-slate-200' };
         };
 
@@ -345,6 +386,7 @@
             });
         };
 
+        // --- Tailwind Theme Classes ---
         const bg = dark ? 'bg-slate-950/95 text-slate-100' : 'bg-white/95 text-slate-900';
         const bdr = dark ? 'border-slate-800' : 'border-slate-200';
         const card = dark ? 'bg-slate-800 border-slate-600 text-slate-100' : 'bg-white border-slate-200 text-slate-900 shadow-sm';
@@ -410,24 +452,24 @@
                                 />
                             </div>
 
-                            {/* Action Buttons */}
+                            {/* Action Control Panel */}
                             <div className="flex items-center gap-2">
-                                <button onClick={() => handleFetch('load')} disabled={loading} className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-40 shadow-sm">
+                                <button onClick={() => handleFetch('load')} disabled={loading} title="Instant Load from Cache" className="flex-shrink-0 bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:opacity-40 shadow-sm flex items-center justify-center gap-1.5 min-w-[80px]">
                                     {loading ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"/> : 'Load'}
                                 </button>
 
-                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Fetch only missing new videos" className={`flex-shrink-0 text-xs font-bold px-3 py-2 rounded-lg border transition-all shadow-sm ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Smart Sync: Only fetch newly released videos" className={`flex-shrink-0 text-xs font-bold px-3 py-2 rounded-lg border transition-all shadow-sm ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
                                     ⚡ Update
                                 </button>
 
-                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Archive Sync" className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'}`}>
+                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Deep Archive Wipe & Resync" className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'}`}>
                                     🔄 Refresh
                                 </button>
                             </div>
 
                             <div className="w-px h-6 bg-slate-700/50 mx-1 hidden md:block"></div>
 
-                            <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export Table to CSV" className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'} disabled:opacity-40`}>
+                            <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export Current View to CSV" className={`flex-shrink-0 text-xs px-3 py-2 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-emerald-400' : 'border-slate-300 hover:bg-slate-100 text-emerald-600'} disabled:opacity-40 font-semibold`}>
                                 📥 CSV
                             </button>
 
@@ -436,7 +478,7 @@
                             </button>
                         </div>
 
-                        {/* Console Logs Wrapper */}
+                        {/* Event Logger Console */}
                         <div className={`console-wrap ${logs.length > 0 ? 'open' : ''}`}>
                             <div className="console-inner">
                                 <div className="pb-2 -mt-1">
@@ -444,7 +486,7 @@
                                         {logs.map((l, i) => (
                                             <span key={i}>
                                                 {i > 0 && <span className={dark ? 'text-slate-700' : 'text-slate-300'}> · </span>}
-                                                <span className={l.startsWith('✅') ? 'text-emerald-500' : l.startsWith('⚡') ? 'text-blue-400' : l.startsWith('❌') ? 'text-red-500' : mt}>{l}</span>
+                                                <span className={l.startsWith('✅') || l.startsWith('📦') ? 'text-emerald-500' : l.startsWith('⚡') ? 'text-blue-400' : l.startsWith('❌') ? 'text-red-500' : mt}>{l}</span>
                                             </span>
                                         ))}
                                     </div>
@@ -454,19 +496,18 @@
                     </div>
                 </div>
 
-                {/* Content Workspace */}
+                {/* Main Workspace Area */}
                 <div className="px-4 xl:px-8 py-6">
-                    {/* Settings Guideline */}
+                    {/* Tutorial & Settings Drawer */}
                     {showSettings && (
                         <div className={`${card} border rounded-xl p-5 mb-6 text-sm max-w-3xl mx-auto space-y-4 animate-fade-in`}>
-                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 Dashboard Features & Configuration</h3>
+                            <h3 className="font-bold text-base flex items-center gap-2 border-b pb-2 border-slate-700/40">📋 Core Architecture & Setup</h3>
                             <div className="space-y-3 text-xs text-slate-400">
-                                <div><strong className="text-emerald-500">Load:</strong> Instant Zero-Quota load from your browser's Local Storage.</div>
-                                <div><strong className="text-blue-400">Update:</strong> Smart fetch. Scans YouTube API only until it finds a video you already have locally, appending only the missing ones. Perfect for daily checks.</div>
-                                <div><strong className={t1}>Refresh:</strong> Full deep archive wipe and re-sync. Use sparingly.</div>
-                                <div><strong className={t1}>Status Tracking:</strong> Click the status column cell on any video to toggle Unwatched ➔ Started ➔ Finished. Your progress saves instantly to local cache.</div>
+                                <div><strong className="text-emerald-500">Auto-Load & Persistence:</strong> Your sorting preferences, column filters, and video watch statuses are securely saved directly in your browser. Upon opening the page, it automatically loads your exact previous state with zero API cost.</div>
+                                <div><strong className="text-blue-400">⚡ Update Mode:</strong> Safely fetches only new releases from YouTube, instantly appending them to your database without overwriting your progress.</div>
+                                <div><strong className={t1}>Watch Status Tracker:</strong> Click inside the Status column to mark learning progress: Unwatched ➔ Started ➔ Finished.</div>
                                 <hr className="border-slate-700/40" />
-                                <p>To enable network fetching, please insert your Google Cloud YouTube Data API v3 Key below:</p>
+                                <p>Insert your Google Cloud YouTube Data API v3 Key below to activate network syncing:</p>
                             </div>
                             <div className="pt-2">
                                 <input
@@ -483,7 +524,7 @@
                         </div>
                     )}
 
-                    {/* Main Table Interface */}
+                    {/* Table View Component */}
                     {videos && !loading && (
                         <div className="space-y-6 animate-fade-in">
                             <div className={`${card} border rounded-xl overflow-hidden shadow-lg`}>
@@ -501,7 +542,7 @@
                                     </div>
                                 </div>
 
-                                {/* Desktop Table Layout */}
+                                {/* Desktop Fully Sortable Table */}
                                 <div className={`hidden md:block overflow-x-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
@@ -529,8 +570,8 @@
                                                     <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <button
                                                             onClick={() => toggleStatus(v.url)}
-                                                            className={`px-2 py-1 text-[11px] font-bold border rounded-md transition-all active:scale-95 ${statusMeta.cls}`}
-                                                            title="Click to toggle watch status"
+                                                            className={`px-3 py-1 text-[11px] font-bold border rounded-md transition-all active:scale-95 w-full text-left ${statusMeta.cls}`}
+                                                            title="Click to track learning progress"
                                                         >
                                                             {statusMeta.label}
                                                         </button>
@@ -548,14 +589,14 @@
                                         })}
                                         {processedVideos.length === 0 && (
                                             <tr>
-                                                <td colSpan="5" className={`text-center py-8 ${mt}`}>No results matching criteria.</td>
+                                                <td colSpan="5" className={`text-center py-12 ${mt}`}>No data matched the current column filters.</td>
                                             </tr>
                                         )}
                                         </tbody>
                                     </table>
                                 </div>
 
-                                {/* Responsive Mobile Layout Cards */}
+                                {/* Mobile Optimised Stack Cards */}
                                 <div className="block md:hidden p-4 space-y-3">
                                     <div className="pb-2 flex gap-2 overflow-x-auto">
                                         <input type="text" placeholder="Filter Name..." value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-[120px] px-3 py-2 text-xs rounded border ${inpFilter}`} />
@@ -592,13 +633,13 @@
                     {loading && (
                         <div className={`text-center py-20 ${mt} flex items-center justify-center gap-3`}>
                             <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"/>
-                            Synchronizing YouTube Engine API...
+                            Synchronizing local datastore with YouTube API...
                         </div>
                     )}
 
                     {!loading && !videos && !error && (
                         <div className={`text-center py-20 ${mt}`}>
-                            <p className="text-lg">Click Load to read from cache, or Update to fetch new videos.</p>
+                            <p className="text-lg">Paste your API Key in Settings and click Refresh to start.</p>
                         </div>
                     )}
                 </div>
