@@ -306,9 +306,13 @@
 
         const [videos, setVideos] = useState(null);
         const [currentChannelId, setCurrentChannelId] = useState(null);
-        const [currentHandle, setCurrentHandle] = useState(null);
+        const [currentHandle, setCurrentHandle] = useState(() => {
+            const url = prefs.channelUrl || 'https://www.youtube.com/@InnerCircleTrader';
+            const m = url.match(/@([a-zA-Z0-9_\\-\\.]+)/);
+            return m ? m[1] : null;
+        });
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
-        const [logs, setLogs] = useState([]);
+        const [logs, setLogs] = useState([]); // {id, msg, ts}
         const [showDebug, setShowDebug] = useState(false);
         const silentAttemptedRef = useRef(false);
         const [editNoteUrl, setEditNoteUrl] = useState(null);
@@ -327,7 +331,10 @@
         const [showGsSetup, setShowGsSetup] = useState(false);
 
         const scale = sliderToScale(scaleSlider);
-        const log = msg => setLogs(p => [...p.slice(-19), msg]);
+        const log = useCallback((msg) => {
+            const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            setLogs(p => [...p.slice(-29), { msg, ts }]);
+        }, []);
         const isInitialMount = useRef(true);
 
         // Save prefs (extended)
@@ -376,6 +383,31 @@
                     if (!gEmail) setGEmail(gsConfig.lastAccountEmail || '');
                 }
                 log('✅ Connected to Google account for Sheets');
+
+                // === Auto ensure tab + load data right after successful auth ===
+                // This prevents needing to click "Attach" every time
+                setTimeout(async () => {
+                    if (currentHandle && gTokRef.current) {
+                        try {
+                            const sid = nid(gsConfig.spreadsheetId);
+                            if (sid) {
+                                const tab = getChannelTab(currentHandle, currentChannelId);
+                                await ensureVideoTab(gTokRef.current, sid, tab);
+                                log(`✅ Tab auto-ensured: ${tab}`);
+
+                                // Auto-load the data from the sheet
+                                const sheetData = await loadFromGoogle(currentHandle);
+                                if (sheetData && sheetData.length > 0) {
+                                    setVideos(sheetData);
+                                    if (currentChannelId) setCache(currentChannelId, sheetData);
+                                }
+                            }
+                        } catch (e) {
+                            // silent
+                        }
+                    }
+                }, 300);
+
                 return token;
             } catch (err) {
                 log(`❌ Google auth error: ${em(err)}`);
@@ -383,7 +415,7 @@
                 gTokRef.current = null;
                 throw err;
             }
-        }, [gsConfig.clientId, gEmail]);
+        }, [gsConfig.clientId, gEmail, currentHandle, currentChannelId]);
 
         const disconnectGoogle = useCallback(() => {
             if (gTokRef.current && window.google?.accounts?.oauth2?.revoke) {
@@ -399,6 +431,33 @@
             return isGoogleAuthed && gTokRef.current && nid(gsConfig.spreadsheetId);
         }, [isGoogleAuthed, gsConfig.spreadsheetId]);
 
+        // === ZERO-CLICK Google persistence ===
+        // Automatically ensure tab + load data whenever we have a valid Google connection + current channel
+        useEffect(() => {
+            if (!isGoogleReady || !currentHandle) return;
+
+            const doAutoSync = async () => {
+                try {
+                    // 1. Ensure the tab for this channel exists (silent)
+                    const sid = nid(gsConfig.spreadsheetId);
+                    const tab = getChannelTab(currentHandle, currentChannelId);
+                    await ensureVideoTab(gTokRef.current, sid, tab);
+
+                    // 2. Load the latest data from Google Sheets
+                    const sheetData = await readVideosFromSheet(gTokRef.current, sid, tab);
+                    if (sheetData && sheetData.length > 0) {
+                        setVideos(sheetData);
+                        if (currentChannelId) setCache(currentChannelId, sheetData);
+                        log(`☁️ Auto-loaded ${sheetData.length} videos from ${tab}`);
+                    }
+                } catch (e) {
+                    // silent — user can still use local data
+                }
+            };
+
+            doAutoSync();
+        }, [isGoogleReady, currentHandle, currentChannelId, gsConfig.spreadsheetId]);
+
         // --- Google Sheets sync functions for videos ---
         const syncToGoogle = useCallback(async (videosToSave, handleForTab) => {
             if (!isGoogleReady || !videosToSave || !handleForTab) return;
@@ -409,7 +468,19 @@
                 const tab = getChannelTab(handleForTab, currentChannelId);
                 await ensureVideoTab(token, sid, tab);
                 await writeVideosToSheet(token, sid, tab, videosToSave);
-                log(`☁️ Synced ${videosToSave.length} videos to Google Sheets tab: ${tab}`);
+
+                log(`☁️ Synced ${videosToSave.length} videos → tab: ${tab}`);
+
+                // === RICH VIDEO DETAILS IN DEBUG ===
+                if (videosToSave.length > 0) {
+                    const examples = videosToSave.slice(0, 3);
+                    examples.forEach((v, idx) => {
+                        const shortTitle = (v.name || '').length > 48 ? (v.name || '').slice(0, 48) + '…' : (v.name || '');
+                        log(`   ${idx+1}. ${formatDate(v.datetime)} • ${shortTitle}`);
+                        log(`      ${v.url}`);
+                    });
+                    if (videosToSave.length > 3) log(`   … +${videosToSave.length - 3} more`);
+                }
             } catch (err) {
                 log(`❌ Google sync error: ${em(err)}`);
                 setError(`Google Sheets sync failed: ${em(err)}`);
@@ -427,7 +498,17 @@
                 const tab = getChannelTab(handleForTab, currentChannelId || '');
                 const sheetVideos = await readVideosFromSheet(token, sid, tab);
                 if (sheetVideos.length > 0) {
-                    log(`☁️ Loaded ${sheetVideos.length} videos from Google Sheets tab: ${tab}`);
+                    log(`☁️ Loaded ${sheetVideos.length} videos from tab: ${tab}`);
+
+                    // Show sample video info in debug
+                    const samples = sheetVideos.slice(0, 2);
+                    samples.forEach((v, i) => {
+                        const t = (v.name || '').length > 48 ? (v.name || '').slice(0,48)+'…' : (v.name || '');
+                        log(`   ${i+1}. ${formatDate(v.datetime)} • ${t}`);
+                        log(`      ${v.url}`);
+                    });
+                    if (sheetVideos.length > 2) log(`   … +${sheetVideos.length-2} more`);
+
                     return sheetVideos;
                 }
                 return null;
@@ -529,6 +610,8 @@
                 let pageCount = 0;
                 let hitExisting = false;
 
+                log(`📥 Fetching videos from YouTube...`);
+
                 do {
                     const playlistItemsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${meta.uploadsPlaylistId}&maxResults=50&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
                     const pRes = await fetch(playlistItemsUrl);
@@ -549,8 +632,9 @@
                     if (hitExisting) break;
                     nextPageToken = pData.nextPageToken;
                     pageCount++;
-                    log(`⏳ Synced page ${pageCount} (Found ${newItems.length} new records)...`);
                 } while (nextPageToken);
+
+                log(`📥 Fetched ${newItems.length} raw items across ${pageCount} pages.`);
 
                 // Merge status/note from both cache + sheetData
                 const statusMap = {};
@@ -587,9 +671,27 @@
                     processedNew.forEach(v => { existingMap[v.url] = v; });
                     finalData = Object.values(existingMap).sort((a, b) => (b.datetime || '').localeCompare(a.datetime || ''));
                     log(`✅ Smart Update complete. Merged ${processedNew.length} new items. Total: ${finalData.length}`);
+
+                    // Show sample video details
+                    if (processedNew.length > 0) {
+                        const sample = processedNew[0];
+                        log(`   Latest new: ${formatDate(sample.datetime)} • ${sample.name.length > 45 ? sample.name.slice(0,45)+'…' : sample.name}`);
+                        log(`   ${sample.url}`);
+                    }
                 } else {
                     finalData = processedNew;
                     log(`✅ Full Refresh complete. ${finalData.length} items.`);
+
+                    // Show a few sample videos in debug console
+                    if (finalData.length > 0) {
+                        const samples = finalData.slice(0, 2);
+                        samples.forEach((v, i) => {
+                            const t = v.name.length > 48 ? v.name.slice(0,48)+'…' : v.name;
+                            log(`   ${i+1}. ${formatDate(v.datetime)} • ${t}`);
+                            log(`      ${v.url}`);
+                        });
+                        if (finalData.length > 2) log(`   … +${finalData.length-2} more`);
+                    }
                 }
 
                 setVideos(finalData);
@@ -774,35 +876,62 @@
             disconnectGoogle();
         };
 
-        const handleGsAttach = async () => {
+        const handleGsAttach = async (forceInteractive = false) => {
             if (!nid(gsConfig.spreadsheetId)) {
                 setError('Please enter a valid Spreadsheet ID or URL first.');
                 return;
             }
             if (!isGoogleAuthed) {
+                try {
+                    await doGoogleAuth(false);
+                    if (!isGoogleAuthed && forceInteractive) await doGoogleAuth(true);
+                } catch { 
+                    if (forceInteractive) return;
+                    // try one more time interactively
+                    try { await doGoogleAuth(true); } catch { return; }
+                }
+            }
+            if (!isGoogleAuthed) {
                 try { await doGoogleAuth(true); } catch { return; }
             }
+
             const token = gTokRef.current;
             const sid = nid(gsConfig.spreadsheetId);
             try {
                 setGsSyncing(true);
-                await ensureVideoTab(token, sid, getChannelTab(currentHandle || 'default', currentChannelId));
+                const tab = getChannelTab(currentHandle || 'default', currentChannelId);
+                await ensureVideoTab(token, sid, tab);
                 updateGsConfig({ spreadsheetId: sid, spreadsheetUrl: surl(sid) });
-                log('✅ Spreadsheet attached. Tabs will be created per channel.');
-                // trigger reload from sheet
+                log('✅ Tab ensured: ' + tab);
+
+                // Immediately load latest from the tab
                 if (currentHandle) {
                     const sheetData = await loadFromGoogle(currentHandle);
-                    if (sheetData) {
+                    if (sheetData && sheetData.length > 0) {
                         setVideos(sheetData);
                         if (currentChannelId) setCache(currentChannelId, sheetData);
                     }
                 }
             } catch (e) {
-                setError('Attach failed: ' + em(e));
+                setError('Ensure tab failed: ' + em(e));
             } finally {
                 setGsSyncing(false);
             }
         };
+
+        // Auto-ensure tab silently when we have Google ready + spreadsheet
+        const autoEnsureTab = useCallback(async () => {
+            if (!isGoogleReady || !gsConfig.spreadsheetId || !currentHandle) return;
+            try {
+                const token = gTokRef.current;
+                const sid = nid(gsConfig.spreadsheetId);
+                const tab = getChannelTab(currentHandle, currentChannelId);
+                await ensureVideoTab(token, sid, tab);
+                // silent success — no log spam, only on first attach or error
+            } catch (e) {
+                // ignore silent ensure errors
+            }
+        }, [isGoogleReady, gsConfig.spreadsheetId, currentHandle, currentChannelId]);
 
         const handleCreateGsSpreadsheet = async () => {
             if (!isGoogleAuthed) {
@@ -1001,6 +1130,16 @@
                                         ) : (
                                             <button onClick={handleGsDisconnect} disabled={gsSyncing} title="Disconnect Google" className="flex-shrink-0 text-sm px-2 py-1 rounded border border-rose-400 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">🔌</button>
                                         )}
+                                        {isGoogleReady && (
+                                            <button 
+                                                onClick={() => handleGsAttach(false)} 
+                                                disabled={gsSyncing} 
+                                                title="Ensure tab & reload from Google Sheets"
+                                                className="flex-shrink-0 text-xs px-2 py-1 rounded border border-emerald-400 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                            >
+                                                ↻
+                                            </button>
+                                        )}
                                     </>
                                 )}
 
@@ -1038,17 +1177,16 @@
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-700/20 text-xs">
                                                         {logs.slice().reverse().map((l, i) => {
-                                                            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                                            const isSuccess = l.startsWith('✅') || l.startsWith('📦') || l.startsWith('☁️');
-                                                            const isError = l.startsWith('❌');
-                                                            const isInfo = l.startsWith('⚡');
+                                                            const isSuccess = (l.msg || '').startsWith('✅') || (l.msg || '').startsWith('📦') || (l.msg || '').startsWith('☁️');
+                                                            const isError = (l.msg || '').startsWith('❌');
+                                                            const isInfo = (l.msg || '').startsWith('⚡');
                                                             return (
                                                                 <tr key={i} className="debug-row">
                                                                     <td className="px-2 py-1 text-slate-500 tabular-nums">{logs.length - i}</td>
                                                                     <td className={`px-2 py-1 ${isSuccess ? 'text-emerald-400' : isError ? 'text-red-400' : isInfo ? 'text-blue-400' : mt}`}>
-                                                                        {l}
+                                                                        {l.msg}
                                                                     </td>
-                                                                    <td className="px-2 py-1 text-right text-[10px] text-slate-500 tabular-nums">{time}</td>
+                                                                    <td className="px-2 py-1 text-right text-[10px] text-slate-500 tabular-nums">{l.ts}</td>
                                                                 </tr>
                                                             );
                                                         })}
