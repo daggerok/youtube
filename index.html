@@ -1070,7 +1070,7 @@
         const tblFs = `${Math.round(14 * scale)}px`;
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
-        const tbBtn = 'w-full md:w-9 h-9 rounded-lg border transition-all flex items-center justify-center disabled:opacity-40 text-base';
+        const tbBtn = 'w-full md:w-9 h-9 rounded-lg border-0 bg-transparent transition-all flex items-center justify-center disabled:opacity-40 text-base';
         const iconBtn = 'w-8 h-8 rounded-lg border flex items-center justify-center text-sm transition-all active:scale-95 flex-shrink-0';
 
         const Th = ({ label, columnKey, width }) => (
@@ -1273,7 +1273,7 @@
                                 <button
                                     onClick={() => setShowSettings(!showSettings)}
                                     title="Settings"
-                                    className={`${tbBtn} ${showSettings ? (dark ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-600 border-slate-300') : (dark ? 'text-slate-400 border-slate-700 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-500 border-slate-300 hover:text-slate-700 hover:bg-slate-100')}`}
+                                    className={`${tbBtn} ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100')}`}
                                 >
                                     ⚙️
                                 </button>
@@ -1282,7 +1282,7 @@
                                     type="button"
                                     onClick={() => setShowDebug(p => !p)}
                                     title="Toggle debug console"
-                                    className={`${tbBtn} ${dark ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
+                                    className={`${tbBtn} ${dark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
                                 >
                                     <span className="flex items-center justify-center gap-1">
                                         <span className={`h-2 w-2 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "YT API Key OK" : "YT API Key missing"}></span>
@@ -1290,27 +1290,27 @@
                                     </span>
                                 </button>
 
-                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Update (new videos only)" className={`${tbBtn} font-bold ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Update (new videos only)" className={`${tbBtn} font-bold ${dark ? 'text-blue-400 hover:bg-blue-500/20' : 'text-blue-600 hover:bg-blue-100'}`}>
                                     ⬇
                                 </button>
 
-                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Refresh" className={`${tbBtn} ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'}`}>
+                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Refresh" className={`${tbBtn} ${dark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-600'}`}>
                                     🔄
                                 </button>
 
                                 {gsConfig.clientId && (
                                     <>
                                         {!isGoogleAuthed ? (
-                                            <button onClick={handleGsConnect} disabled={gsSyncing} title="Connect Google Sheets" className={`${tbBtn} border-blue-400 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20`}>☁️</button>
+                                            <button onClick={handleGsConnect} disabled={gsSyncing} title="Connect Google Sheets" className={`${tbBtn} text-blue-400 hover:bg-blue-500/20`}>☁️</button>
                                         ) : (
-                                            <button onClick={handleGsDisconnect} disabled={gsSyncing} title="Disconnect Google" className={`${tbBtn} border-rose-400 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20`}>🔌</button>
+                                            <button onClick={handleGsDisconnect} disabled={gsSyncing} title="Disconnect Google" className={`${tbBtn} text-rose-400 hover:bg-rose-500/20`}>🔌</button>
                                         )}
                                         {isGoogleReady && (
                                             <button
                                                 onClick={() => handleGsAttach(false)}
                                                 disabled={gsSyncing}
                                                 title="Ensure tab & reload from Google Sheets"
-                                                className={`${tbBtn} border-emerald-400 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20`}
+                                                className={`${tbBtn} text-emerald-400 hover:bg-emerald-500/20`}
                                             >
                                                 ↻
                                             </button>
@@ -1322,7 +1322,7 @@
                                     📥
                                 </button>
 
-                                <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`${tbBtn} ${dark ? 'border-slate-700 text-yellow-400 hover:text-yellow-300 hover:bg-slate-800' : 'border-slate-300 text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}>
+                                <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`${tbBtn} ${dark ? 'text-yellow-400 hover:text-yellow-300 hover:bg-slate-800' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}>
                                     {dark ? '☀' : '🌙'}
                                 </button>
                             </div>
