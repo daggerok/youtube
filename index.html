@@ -1071,7 +1071,7 @@
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
         const tbBtn = 'w-full md:w-9 h-9 rounded-lg border-0 bg-transparent transition-all flex items-center justify-center disabled:opacity-40 text-base';
-        const iconBtn = 'w-8 h-8 rounded-lg border flex items-center justify-center text-sm transition-all active:scale-95 flex-shrink-0';
+        const iconBtn = 'w-7 h-7 rounded-md border-0 bg-transparent flex items-center justify-center text-xs transition-all active:scale-95 flex-shrink-0';
 
         const Th = ({ label, columnKey, width }) => (
             <th className={`px-4 align-top ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
@@ -1565,26 +1565,27 @@
                                     </div>
                                     {processedVideos.map((v, i) => {
                                         const status = v.status || 'unwatched';
-                                        const statusMeta = getStatusDisplay(status);
                                         const statusIcon = status === 'watched' ? '🟢' : status === 'watching' ? '🟡' : '⚪️';
                                         const statusTip = status === 'watched' ? 'Watched — tap to mark unwatched' : status === 'watching' ? 'Watching — tap to mark watched' : 'Unwatched — tap to mark watching';
+                                        const statusIconStyle = status === 'watched'
+                                            ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-600 hover:bg-emerald-100')
+                                            : status === 'watching'
+                                                ? (dark ? 'text-yellow-400 hover:bg-yellow-500/20' : 'text-yellow-600 hover:bg-yellow-100')
+                                                : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100');
                                         return (
                                             <div key={i} className={`border rounded-xl px-3 py-2.5 ${dark ? 'bg-slate-900/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'} space-y-1.5`}>
                                                 <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>{v.type}</span>
-                                                            <span className="text-[11px] font-mono opacity-60 truncate">{formatDate(v.datetime)}</span>
-                                                        </div>
-                                                        <h4 className={`font-semibold text-sm leading-snug ${t1}`}>{v.name}</h4>
+                                                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                                                        <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md flex-shrink-0 ${getBadgeStyle(v.type)}`}>{v.type}</span>
+                                                        <span className="text-[11px] font-mono opacity-60 truncate">{formatDate(v.datetime)}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
+                                                    <div className="flex items-center gap-0.5 flex-shrink-0">
                                                         <button
                                                             onClick={() => toggleStatus(v.url)}
                                                             title={statusTip}
                                                             data-tip={status === 'watched' ? 'Watched' : status === 'watching' ? 'Watching' : 'Unwatched'}
                                                             aria-label={statusTip}
-                                                            className={`has-tip ${iconBtn} ${statusMeta.cls}`}
+                                                            className={`has-tip ${iconBtn} ${statusIconStyle}`}
                                                         >
                                                             {statusIcon}
                                                         </button>
@@ -1595,7 +1596,7 @@
                                                             title="Watch"
                                                             data-tip="Watch"
                                                             aria-label="Watch"
-                                                            className={`has-tip ${iconBtn} ${dark ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'border-emerald-300 bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                                                            className={`has-tip ${iconBtn} ${dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-600 hover:bg-emerald-100'}`}
                                                         >
                                                             ▶
                                                         </a>
@@ -1608,13 +1609,14 @@
                                                             data-tip={v.note ? 'Edit note' : 'Add note'}
                                                             aria-label={v.note ? 'Edit note' : 'Add note'}
                                                             className={`has-tip ${iconBtn} ${editNoteUrl === v.url || (v.note && v.note.trim())
-                                                                ? (dark ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-emerald-300 bg-emerald-50 text-emerald-700')
-                                                                : (dark ? 'border-slate-700 text-slate-400 hover:bg-slate-800' : 'border-slate-300 text-slate-500 hover:bg-slate-100')}`}
+                                                                ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100')
+                                                                : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100')}`}
                                                         >
                                                             {(v.note && v.note.trim()) ? '📝' : '✏️'}
                                                         </button>
                                                     </div>
                                                 </div>
+                                                <h4 className={`font-semibold text-sm leading-snug ${t1}`}>{v.name}</h4>
                                                 {editNoteUrl === v.url ? (
                                                     <input
                                                         type="text"
