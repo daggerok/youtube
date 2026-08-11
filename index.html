@@ -1660,7 +1660,15 @@
         );
     };
 
-    ReactDOM = window.ReactDOM || { createRoot(el) {} };
+    ReactDOM = window.ReactDOM || {
+        createRoot(_) {
+            return {
+                render() {
+                    // yep.
+                }
+            }
+        }
+    };
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 </body>
