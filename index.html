@@ -70,6 +70,33 @@
         .animate-slide-up { animation: slideUp 0.2s ease-out forwards; }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideUp { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-10px); } }
+
+        .has-tip { position: relative; }
+        .has-tip::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: #0f172a;
+            color: #f8fafc;
+            font-size: 10px;
+            line-height: 1.2;
+            font-weight: 600;
+            white-space: nowrap;
+            padding: 4px 7px;
+            border-radius: 6px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity .12s ease, transform .12s ease;
+            z-index: 40;
+            box-shadow: 0 4px 12px rgba(0,0,0,.25);
+        }
+        html:not(.dark) .has-tip::after { background: #1e293b; color: #f8fafc; }
+        .has-tip:hover::after, .has-tip:focus-visible::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
     </style>
 </head>
 <body class="min-h-screen">
@@ -1043,6 +1070,8 @@
         const tblFs = `${Math.round(14 * scale)}px`;
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
+        const tbBtn = 'w-full md:w-9 h-9 rounded-lg border transition-all flex items-center justify-center disabled:opacity-40 text-base';
+        const iconBtn = 'w-8 h-8 rounded-lg border flex items-center justify-center text-sm transition-all active:scale-95 flex-shrink-0';
 
         const Th = ({ label, columnKey, width }) => (
             <th className={`px-4 align-top ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
@@ -1225,22 +1254,9 @@
                 {/* Navbar */}
                 <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md`}>
                     <div className="px-4 xl:px-8">
-                        <div className="flex flex-wrap items-center gap-3 py-3">
-                            <button
-                                onClick={() => setShowSettings(!showSettings)}
-                                title="Settings"
-                                className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${showSettings ? (dark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600') : (dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600')}`}
-                            >
-                                ⚙️
-                            </button>
-
-                            {/* Google status badge */}
-                            <div className="flex items-center gap-1.5 flex-shrink-0" onClick={() => setShowDebug(p => !p)} style={{cursor:'pointer'}} title="Toggle debug console">
-                                <div className={`h-2 w-2 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "YT API Key OK" : "YT API Key missing"}></div>
-                                <div className={`h-2 w-2 rounded-full ${isGoogleReady ? 'bg-blue-500' : 'bg-slate-400'}`} title={isGoogleReady ? `Google Sheets: ${gEmail}` : "Google Sheets not connected"}></div>
-                            </div>
-
-                            <div className="flex-1 min-w-[200px]">
+                        <div className="flex flex-col md:flex-row md:items-center gap-2 py-3">
+                            {/* Input first (full width on mobile) */}
+                            <div className="w-full md:flex-1 min-w-0">
                                 <input
                                     type="text"
                                     title="Channel link or @handle"
@@ -1252,30 +1268,49 @@
                                 />
                             </div>
 
-                            {/* Action Control Panel */}
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Update (new videos only)" className={`flex-shrink-0 text-lg font-bold w-9 h-9 rounded-lg border transition-all shadow-sm flex items-center justify-center ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'} disabled:opacity-40`}>
+                            {/* All actions after the input — centered equal-width icons on mobile */}
+                            <div className="grid grid-flow-col auto-cols-fr justify-items-center gap-1.5 w-full md:flex md:w-auto">
+                                <button
+                                    onClick={() => setShowSettings(!showSettings)}
+                                    title="Settings"
+                                    className={`${tbBtn} ${showSettings ? (dark ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-200 text-slate-600 border-slate-300') : (dark ? 'text-slate-400 border-slate-700 hover:text-slate-200 hover:bg-slate-800' : 'text-slate-500 border-slate-300 hover:text-slate-700 hover:bg-slate-100')}`}
+                                >
+                                    ⚙️
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDebug(p => !p)}
+                                    title="Toggle debug console"
+                                    className={`${tbBtn} ${dark ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'}`}
+                                >
+                                    <span className="flex items-center justify-center gap-1">
+                                        <span className={`h-2 w-2 rounded-full ${apiKey ? 'bg-emerald-500' : 'bg-red-500'}`} title={apiKey ? "YT API Key OK" : "YT API Key missing"}></span>
+                                        <span className={`h-2 w-2 rounded-full ${isGoogleReady ? 'bg-blue-500' : 'bg-slate-400'}`} title={isGoogleReady ? `Google Sheets: ${gEmail}` : "Google Sheets not connected"}></span>
+                                    </span>
+                                </button>
+
+                                <button onClick={() => handleFetch('update')} disabled={loading || !channelUrl} title="Update (new videos only)" className={`${tbBtn} font-bold ${dark ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
                                     ⬇
                                 </button>
 
-                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Refresh" className={`flex-shrink-0 text-lg w-9 h-9 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'} disabled:opacity-40 flex items-center justify-center`}>
+                                <button onClick={() => handleFetch('refresh')} disabled={loading || !channelUrl} title="Full Refresh" className={`${tbBtn} ${dark ? 'border-slate-700 hover:bg-slate-800 text-slate-300' : 'border-slate-300 hover:bg-slate-100 text-slate-600'}`}>
                                     🔄
                                 </button>
 
-                                {/* NEW: Google quick actions */}
                                 {gsConfig.clientId && (
                                     <>
                                         {!isGoogleAuthed ? (
-                                            <button onClick={handleGsConnect} disabled={gsSyncing} title="Connect Google Sheets" className="flex-shrink-0 text-sm px-2.5 py-1 rounded border border-blue-400 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20">☁️</button>
+                                            <button onClick={handleGsConnect} disabled={gsSyncing} title="Connect Google Sheets" className={`${tbBtn} border-blue-400 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20`}>☁️</button>
                                         ) : (
-                                            <button onClick={handleGsDisconnect} disabled={gsSyncing} title="Disconnect Google" className="flex-shrink-0 text-sm px-2 py-1 rounded border border-rose-400 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">🔌</button>
+                                            <button onClick={handleGsDisconnect} disabled={gsSyncing} title="Disconnect Google" className={`${tbBtn} border-rose-400 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20`}>🔌</button>
                                         )}
                                         {isGoogleReady && (
-                                            <button 
-                                                onClick={() => handleGsAttach(false)} 
-                                                disabled={gsSyncing} 
+                                            <button
+                                                onClick={() => handleGsAttach(false)}
+                                                disabled={gsSyncing}
                                                 title="Ensure tab & reload from Google Sheets"
-                                                className="flex-shrink-0 text-xs px-2 py-1 rounded border border-emerald-400 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                                className={`${tbBtn} border-emerald-400 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20`}
                                             >
                                                 ↻
                                             </button>
@@ -1283,11 +1318,11 @@
                                     </>
                                 )}
 
-                                <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export CSV" className={`flex-shrink-0 text-lg w-9 h-9 rounded-lg border transition-all ${dark ? 'border-slate-700 hover:bg-slate-800 text-emerald-400' : 'border-slate-300 hover:bg-slate-100 text-emerald-600'} disabled:opacity-40 flex items-center justify-center`}>
+                                <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export CSV" className={`${tbBtn} ${dark ? 'border-slate-700 hover:bg-slate-800 text-emerald-400' : 'border-slate-300 hover:bg-slate-100 text-emerald-600'}`}>
                                     📥
                                 </button>
 
-                                <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`flex-shrink-0 text-sm px-2 py-1.5 rounded transition-colors ${dark ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-500 hover:text-slate-700'}`}>
+                                <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`${tbBtn} ${dark ? 'border-slate-700 text-yellow-400 hover:text-yellow-300 hover:bg-slate-800' : 'border-slate-300 text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}>
                                     {dark ? '☀' : '🌙'}
                                 </button>
                             </div>
@@ -1448,7 +1483,7 @@
                                             <Th label="Note" columnKey="note" width="w-48" />
                                         </tr>
                                         </thead>
-                                        <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
+                                        <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`} <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
                                         {processedVideos.map((v, i) => {
                                             const statusMeta = getStatusDisplay(v.status || 'unwatched');
                                             return (
@@ -1522,38 +1557,79 @@
                                     </table>
                                 </div>
 
-                                {/* Mobile Cards */}
-                                <div className="block md:hidden p-4 space-y-3">
-                                    <div className="pb-2 flex gap-2 overflow-x-auto">
-                                        <input type="text" placeholder="Filter Name..." title="Filter by Name" value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-[120px] px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                {/* Mobile Cards — compact icons instead of large action buttons */}
+                                <div className="block md:hidden p-3 space-y-2">
+                                    <div className="pb-1 flex gap-2">
+                                        <input type="text" placeholder="Filter Name..." title="Filter by Name" value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-0 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                         <input type="text" placeholder="Filter Status..." title="Filter by Status" value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                     </div>
                                     {processedVideos.map((v, i) => {
-                                        const statusMeta = getStatusDisplay(v.status || 'unwatched');
+                                        const status = v.status || 'unwatched';
+                                        const statusMeta = getStatusDisplay(status);
+                                        const statusIcon = status === 'watched' ? '🟢' : status === 'watching' ? '🟡' : '⚪️';
+                                        const statusTip = status === 'watched' ? 'Watched — tap to mark unwatched' : status === 'watching' ? 'Watching — tap to mark watched' : 'Unwatched — tap to mark watching';
                                         return (
-                                            <div key={i} className={`border rounded-xl p-4 ${dark ? 'bg-slate-900/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'} space-y-3`}>
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>{v.type}</span>
-                                                        <span className="text-[11px] font-mono opacity-60">{formatDate(v.datetime)}</span>
+                                            <div key={i} className={`border rounded-xl px-3 py-2.5 ${dark ? 'bg-slate-900/40 border-slate-700/60' : 'bg-slate-50 border-slate-200'} space-y-1.5`}>
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>{v.type}</span>
+                                                            <span className="text-[11px] font-mono opacity-60 truncate">{formatDate(v.datetime)}</span>
+                                                        </div>
+                                                        <h4 className={`font-semibold text-sm leading-snug ${t1}`}>{v.name}</h4>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 flex-shrink-0 pt-0.5">
+                                                        <button
+                                                            onClick={() => toggleStatus(v.url)}
+                                                            title={statusTip}
+                                                            data-tip={status === 'watched' ? 'Watched' : status === 'watching' ? 'Watching' : 'Unwatched'}
+                                                            aria-label={statusTip}
+                                                            className={`has-tip ${iconBtn} ${statusMeta.cls}`}
+                                                        >
+                                                            {statusIcon}
+                                                        </button>
+                                                        <a
+                                                            href={v.url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            title="Watch"
+                                                            data-tip="Watch"
+                                                            aria-label="Watch"
+                                                            className={`has-tip ${iconBtn} ${dark ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'border-emerald-300 bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                                                        >
+                                                            ▶
+                                                        </a>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (editNoteUrl === v.url) { setEditNoteUrl(null); setEditNoteText(''); }
+                                                                else { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }
+                                                            }}
+                                                            title={v.note ? 'Edit note' : 'Add note'}
+                                                            data-tip={v.note ? 'Edit note' : 'Add note'}
+                                                            aria-label={v.note ? 'Edit note' : 'Add note'}
+                                                            className={`has-tip ${iconBtn} ${editNoteUrl === v.url || (v.note && v.note.trim())
+                                                                ? (dark ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400' : 'border-emerald-300 bg-emerald-50 text-emerald-700')
+                                                                : (dark ? 'border-slate-700 text-slate-400 hover:bg-slate-800' : 'border-slate-300 text-slate-500 hover:bg-slate-100')}`}
+                                                        >
+                                                            {(v.note && v.note.trim()) ? '📝' : '✏️'}
+                                                        </button>
                                                     </div>
                                                 </div>
-                                                <h4 className={`font-semibold text-sm ${t1} line-clamp-2`}>{v.name}</h4>
-                                                {v.note ? (
-                                                    <div className="text-[11px] text-slate-400 truncate">
-                                                        📝 {v.note.length > 40 ? v.note.slice(0, 40) + '…' : v.note}
-                                                    </div>
-                                                ) : (
-                                                    <button onClick={() => { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }} className="text-[11px] text-slate-400 hover:text-emerald-500 transition-colors" title="Add note">✏️ Add note</button>
-                                                )}
-                                                <div className="pt-2 flex items-center justify-between gap-2">
-                                                    <button onClick={() => toggleStatus(v.url)} title="Toggle watch status" className={`flex-1 text-center text-xs py-2 rounded-lg font-bold border transition-all ${statusMeta.cls}`}>
-                                                        {statusMeta.label}
-                                                    </button>
-                                                    <a href={v.url} target="_blank" rel="noreferrer" className="flex-1 text-center bg-emerald-500 hover:bg-emerald-400 text-white text-xs py-2 rounded-lg font-bold transition-all">
-                                                        Watch ↗
-                                                    </a>
-                                                </div>
+                                                {editNoteUrl === v.url ? (
+                                                    <input
+                                                        type="text"
+                                                        autoFocus
+                                                        value={editNoteText}
+                                                        onChange={e => setEditNoteText(e.target.value)}
+                                                        onBlur={() => saveNote(v.url, editNoteText)}
+                                                        onKeyDown={e => { if (e.key === 'Enter') saveNote(v.url, editNoteText); if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
+                                                        className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors ${inpFilter}`}
+                                                        title="Edit note"
+                                                        placeholder="Write a note…"
+                                                    />
+                                                ) : (v.note && v.note.trim()) ? (
+                                                    <p className={`text-[10px] leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
+                                                ) : null}
                                             </div>
                                         );
                                     })}
