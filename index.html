@@ -103,6 +103,7 @@
 <div id="root"></div>
 
 <script type="text/babel" data-presets="react">
+    const React = window.React || {};
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
     // --- Local Storage keys (existing + new) ---
@@ -1659,6 +1660,7 @@
         );
     };
 
+    ReactDOM = window.ReactDOM || { createRoot(el) {} };
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 </body>
