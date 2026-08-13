@@ -206,7 +206,7 @@
                 callback: r => {
                     if (r.error) return f(new Error(r.error));
                     if (!r.access_token) return f(new Error('No token'));
-                    ok(r.access_token);
+                    ok(r);
                 },
                 error_callback: e => f(new Error(e?.type || e?.message || 'GIS err'))
             });
@@ -225,10 +225,13 @@
         if (!res.ok) {
             let msg = txt || `HTTP ${res.status}`;
             if (json && json.error && json.error.message) msg = json.error.message;
-            throw new Error(`Sheets API ${res.status}: ${msg}`);
+            const err = new Error(`Google API ${res.status}: ${msg}`);
+            err.status = res.status;
+            throw err;
         }
         return json;
     };
+    const isGoogleAuthError = e => e?.status === 401;
     const sa = (p, tok, i) => gf(`${SHEETS_API}${p}`, tok, i);
     const fp = async (tok) => gf(USERINFO, tok);
 
@@ -241,17 +244,19 @@
         const id = nid(sid);
         if (!id) throw new Error('No spreadsheet ID');
         const t = tab.trim();
-        try {
-            const m = await sa(`/spreadsheets/${id}`, tok);
-            const exists = (m.sheets || []).some(s => s.properties && s.properties.title === t);
-            if (!exists) {
+        const m = await sa(`/spreadsheets/${id}`, tok);
+        const exists = (m.sheets || []).some(s => s.properties && s.properties.title === t);
+        if (!exists) {
+            try {
                 await sa(`/spreadsheets/${id}:batchUpdate`, tok, {
                     method: 'POST',
                     body: JSON.stringify({ requests: [{ addSheet: { properties: { title: t } } }] })
                 });
+            } catch (e) {
+                // A concurrent request may have created the same tab already.
+                // Never hide auth/server failures; the token retry layer needs to see them.
+                if (e?.status !== 400) throw e;
             }
-        } catch (e) {
-            // ignore if already exists etc
         }
         // ensure headers
         const hr = sr(t, 'A1:H1');
@@ -285,7 +290,7 @@
             }).filter(v => v.url);
         } catch (e) {
             dbg('readVideosFromSheet error', e);
-            return [];
+            throw e;
         }
     };
 
@@ -352,7 +357,6 @@
         const [showSettings, setShowSettings] = useState(!prefs.apiKey);
         const [logs, setLogs] = useState([]); // {id, msg, ts}
         const [showDebug, setShowDebug] = useState(false);
-        const silentAttemptedRef = useRef(false);
         const [editNoteUrl, setEditNoteUrl] = useState(null);
         const [editNoteText, setEditNoteText] = useState('');
 
@@ -366,6 +370,9 @@
         const [gEmail, setGEmail] = useState(gsCfg.lastAccountEmail || '');
         const [gsSyncing, setGsSyncing] = useState(false);
         const gTokRef = useRef(null);
+        const gTokExpiresAtRef = useRef(0);
+        const gAuthPromiseRef = useRef(null);
+        const googleSessionDisabledRef = useRef(false);
         const [showGsSetup, setShowGsSetup] = useState(false);
 
         // Sensitive fields eye toggle & copy feedback state
@@ -410,7 +417,6 @@
             const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             setLogs(p => [...p.slice(-29), { msg, ts }]);
         }, []);
-        const isInitialMount = useRef(true);
 
         // Save prefs (extended)
         useEffect(() => {
@@ -438,111 +444,120 @@
         };
 
         // --- Google Auth helpers ---
-        const doGoogleAuth = useCallback(async (interactive) => {
+        // Google Identity Services access tokens are short-lived and intentionally stay in memory.
+        // Keep their expiry beside the token and deduplicate concurrent silent-renewal requests.
+        const doGoogleAuth = useCallback(async (interactive = false, force = false) => {
             const cid = (gsConfig.clientId || '').trim();
             if (!cid) {
                 setError('Enter Google OAuth Client ID in Settings to connect.');
                 setShowSettings(true);
                 throw new Error('No Client ID');
             }
-            try {
-                const token = await rt(cid, interactive);
-                gTokRef.current = token;
-                setIsGoogleAuthed(true);
+
+            const hasFreshToken = gTokRef.current && Date.now() + 60_000 < gTokExpiresAtRef.current;
+            if (!force && hasFreshToken) return gTokRef.current;
+            if (gAuthPromiseRef.current) return gAuthPromiseRef.current;
+
+            const authPromise = (async () => {
                 try {
-                    const profile = await fp(token);
-                    const email = profile.email || '';
-                    setGEmail(email);
-                    setGsConfig(p => ({ ...p, lastAccountEmail: email }));
-                } catch (e) {
-                    if (!gEmail) setGEmail(gsConfig.lastAccountEmail || '');
-                }
-                log('✅ Connected to Google account for Sheets');
+                    const response = await rt(cid, interactive);
+                    const token = response.access_token;
+                    const expiresInSeconds = Number(response.expires_in) || 3600;
+                    gTokRef.current = token;
+                    gTokExpiresAtRef.current = Date.now() + expiresInSeconds * 1000;
+                    googleSessionDisabledRef.current = false;
+                    setIsGoogleAuthed(true);
 
-                // === Auto ensure tab + load data right after successful auth ===
-                // This prevents needing to click "Attach" every time
-                setTimeout(async () => {
-                    if (currentHandle && gTokRef.current) {
-                        try {
-                            const sid = nid(gsConfig.spreadsheetId);
-                            if (sid) {
-                                const tab = getChannelTab(currentHandle, currentChannelId);
-                                await ensureVideoTab(gTokRef.current, sid, tab);
-                                log(`✅ Tab auto-ensured: ${tab}`);
-
-                                // Auto-load the data from the sheet
-                                const sheetData = await loadFromGoogle(currentHandle);
-                                if (sheetData && sheetData.length > 0) {
-                                    setVideos(sheetData);
-                                    if (currentChannelId) setCache(currentChannelId, sheetData);
-                                }
-                            }
-                        } catch (e) {
-                            // silent
-                        }
+                    try {
+                        const profile = await fp(token);
+                        const email = profile.email || '';
+                        setGEmail(email);
+                        if (email) setGsConfig(p => ({ ...p, lastAccountEmail: email }));
+                    } catch (e) {
+                        if (!gEmail) setGEmail(gsConfig.lastAccountEmail || '');
                     }
-                }, 300);
 
-                return token;
-            } catch (err) {
-                log(`❌ Google auth error: ${em(err)}`);
-                setIsGoogleAuthed(false);
-                gTokRef.current = null;
-                throw err;
+                    log(force && !interactive ? '✅ Google Sheets session renewed' : '✅ Connected to Google account for Sheets');
+                    return token;
+                } catch (err) {
+                    log(`❌ Google auth error: ${em(err)}`);
+                    setIsGoogleAuthed(false);
+                    gTokRef.current = null;
+                    gTokExpiresAtRef.current = 0;
+                    throw err;
+                }
+            })();
+
+            gAuthPromiseRef.current = authPromise;
+            try {
+                return await authPromise;
+            } finally {
+                if (gAuthPromiseRef.current === authPromise) gAuthPromiseRef.current = null;
             }
-        }, [gsConfig.clientId, gEmail, currentHandle, currentChannelId]);
+        }, [gsConfig.clientId, gsConfig.lastAccountEmail, gEmail, log]);
+
+        // Run every Sheets operation with a fresh token. If Google rejects a token before
+        // its advertised expiry (revocation, restored tab, clock skew), renew once and retry.
+        const runWithGoogleAuth = useCallback(async (operation) => {
+            let token = await doGoogleAuth(false);
+            try {
+                return await operation(token);
+            } catch (err) {
+                if (!isGoogleAuthError(err)) throw err;
+                log('🔐 Google access token expired; renewing and retrying…');
+                gTokRef.current = null;
+                gTokExpiresAtRef.current = 0;
+                setIsGoogleAuthed(false);
+                token = await doGoogleAuth(false, true);
+                return operation(token);
+            }
+        }, [doGoogleAuth, log]);
+
+        // User-clicked Google actions may fall back to an interactive consent window when
+        // there is no restorable session. Automatic startup never invokes this helper.
+        const runWithGoogleAuthFromClick = useCallback(async (operation) => {
+            if (!gTokRef.current && !gsConfig.lastAccountEmail) {
+                await doGoogleAuth(true, true);
+            }
+            try {
+                return await runWithGoogleAuth(operation);
+            } catch (err) {
+                if (gTokRef.current) throw err;
+                await doGoogleAuth(true, true);
+                return runWithGoogleAuth(operation);
+            }
+        }, [doGoogleAuth, runWithGoogleAuth, gsConfig.lastAccountEmail]);
 
         const disconnectGoogle = useCallback(() => {
             if (gTokRef.current && window.google?.accounts?.oauth2?.revoke) {
                 try { window.google.accounts.oauth2.revoke(gTokRef.current, () => {}); } catch {}
             }
+            googleSessionDisabledRef.current = true;
             gTokRef.current = null;
+            gTokExpiresAtRef.current = 0;
             setIsGoogleAuthed(false);
             setGEmail('');
             log('🔌 Disconnected from Google Sheets');
-        }, []);
+        }, [log]);
 
         const isGoogleReady = useMemo(() => {
-            return isGoogleAuthed && gTokRef.current && nid(gsConfig.spreadsheetId);
+            return Boolean(isGoogleAuthed && gTokRef.current && nid(gsConfig.spreadsheetId));
         }, [isGoogleAuthed, gsConfig.spreadsheetId]);
-
-        // === ZERO-CLICK Google persistence ===
-        // Automatically ensure tab + load data whenever we have a valid Google connection + current channel
-        useEffect(() => {
-            if (!isGoogleReady || !currentHandle) return;
-
-            const doAutoSync = async () => {
-                try {
-                    // 1. Ensure the tab for this channel exists (silent)
-                    const sid = nid(gsConfig.spreadsheetId);
-                    const tab = getChannelTab(currentHandle, currentChannelId);
-                    await ensureVideoTab(gTokRef.current, sid, tab);
-
-                    // 2. Load the latest data from Google Sheets
-                    const sheetData = await readVideosFromSheet(gTokRef.current, sid, tab);
-                    if (sheetData && sheetData.length > 0) {
-                        setVideos(sheetData);
-                        if (currentChannelId) setCache(currentChannelId, sheetData);
-                        log(`☁️ Auto-loaded ${sheetData.length} videos from ${tab}`);
-                    }
-                } catch (e) {
-                    // silent — user can still use local data
-                }
-            };
-
-            doAutoSync();
-        }, [isGoogleReady, currentHandle, currentChannelId, gsConfig.spreadsheetId]);
 
         // --- Google Sheets sync functions for videos ---
         const syncToGoogle = useCallback(async (videosToSave, handleForTab) => {
-            if (!isGoogleReady || !videosToSave || !handleForTab) return;
+            const sid = nid(gsConfig.spreadsheetId);
+            const canUseGoogle = !googleSessionDisabledRef.current &&
+                Boolean(gsConfig.clientId && sid && (gTokRef.current || gsConfig.lastAccountEmail));
+            if (!canUseGoogle || !videosToSave || !handleForTab) return false;
+
             setGsSyncing(true);
             try {
-                const token = gTokRef.current;
-                const sid = nid(gsConfig.spreadsheetId);
                 const tab = getChannelTab(handleForTab, currentChannelId);
-                await ensureVideoTab(token, sid, tab);
-                await writeVideosToSheet(token, sid, tab, videosToSave);
+                await runWithGoogleAuth(async token => {
+                    await ensureVideoTab(token, sid, tab);
+                    await writeVideosToSheet(token, sid, tab, videosToSave);
+                });
 
                 log(`☁️ Synced ${videosToSave.length} videos → tab: ${tab}`);
 
@@ -556,22 +571,29 @@
                     });
                     if (videosToSave.length > 3) log(`   … +${videosToSave.length - 3} more`);
                 }
+                return true;
             } catch (err) {
                 log(`❌ Google sync error: ${em(err)}`);
                 setError(`Google Sheets sync failed: ${em(err)}`);
+                return false;
             } finally {
                 setGsSyncing(false);
             }
-        }, [isGoogleReady, gsConfig.spreadsheetId, currentChannelId]);
+        }, [gsConfig.clientId, gsConfig.spreadsheetId, gsConfig.lastAccountEmail, currentChannelId, runWithGoogleAuth, log]);
 
         const loadFromGoogle = useCallback(async (handleForTab) => {
-            if (!isGoogleReady || !handleForTab) return null;
+            const sid = nid(gsConfig.spreadsheetId);
+            const canUseGoogle = !googleSessionDisabledRef.current &&
+                Boolean(gsConfig.clientId && sid && (gTokRef.current || gsConfig.lastAccountEmail));
+            if (!canUseGoogle || !handleForTab) return null;
+
             setGsSyncing(true);
             try {
-                const token = gTokRef.current;
-                const sid = nid(gsConfig.spreadsheetId);
                 const tab = getChannelTab(handleForTab, currentChannelId || '');
-                const sheetVideos = await readVideosFromSheet(token, sid, tab);
+                const sheetVideos = await runWithGoogleAuth(async token => {
+                    await ensureVideoTab(token, sid, tab);
+                    return readVideosFromSheet(token, sid, tab);
+                });
                 if (sheetVideos.length > 0) {
                     log(`☁️ Loaded ${sheetVideos.length} videos from tab: ${tab}`);
 
@@ -583,17 +605,16 @@
                         log(`      ${v.url}`);
                     });
                     if (sheetVideos.length > 2) log(`   … +${sheetVideos.length-2} more`);
-
-                    return sheetVideos;
                 }
-                return null;
+                // [] means the cloud read succeeded but this channel tab is empty.
+                return sheetVideos;
             } catch (err) {
                 log(`⚠️ Google load error (will use local): ${em(err)}`);
                 return null;
             } finally {
                 setGsSyncing(false);
             }
-        }, [isGoogleReady, gsConfig.spreadsheetId, currentChannelId]);
+        }, [gsConfig.clientId, gsConfig.spreadsheetId, gsConfig.lastAccountEmail, currentChannelId, runWithGoogleAuth, log]);
 
         // --- Existing handleFetch (enhanced with Google Sheets) ---
         const handleFetch = async (mode = 'load') => {
@@ -644,13 +665,16 @@
 
                 setCurrentChannelId(meta.channelId);
 
-                // === NEW: Try load from Google Sheets first if connected ===
-                let sheetData = null;
-                if (isGoogleReady && mode !== 'refresh') {
-                    sheetData = await loadFromGoogle(handle);
-                }
-
+                // Read cloud state before every YouTube update, including Full Refresh.
+                // loadFromGoogle restores/renews Google auth itself, so this works in the
+                // same startup render instead of waiting for React auth state to catch up.
+                const sheetData = await loadFromGoogle(handle);
+                const googleReadSucceeded = Array.isArray(sheetData);
                 const cachedData = getCache(meta.channelId) || [];
+                const knownUrls = new Set([
+                    ...cachedData,
+                    ...(sheetData || [])
+                ].map(v => v.url));
 
                 // 2. LOAD mode
                 if (mode === 'load') {
@@ -679,6 +703,10 @@
                         setVideos(dataToUse);
                         // also update cache
                         setCache(meta.channelId, dataToUse);
+                        // Populate a newly-created/empty cloud tab even when no YouTube API key is available.
+                        if (googleReadSucceeded && sheetData.length === 0) {
+                            await syncToGoogle(dataToUse, handle);
+                        }
                         setLoading(false);
                         return;
                     }
@@ -703,7 +731,7 @@
                         for (let item of pData.items) {
                             const videoId = item.snippet.resourceId.videoId;
                             const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-                            if (mode === 'update' && cachedData.some(v => v.url === videoUrl)) {
+                            if (mode === 'update' && knownUrls.has(videoUrl)) {
                                 hitExisting = true;
                                 break;
                             }
@@ -723,8 +751,10 @@
                 const createdMap = {};
                 const updatedMap = {};
                 [...cachedData, ...(sheetData || [])].forEach(v => {
-                    if (v.status && v.status !== 'unwatched') statusMap[v.url] = v.status;
-                    if (v.note) noteMap[v.url] = v.note;
+                    // Sheet rows are applied last and are authoritative, including an
+                    // explicit "unwatched" status or a cleared note.
+                    if (v.status) statusMap[v.url] = v.status;
+                    if (Object.prototype.hasOwnProperty.call(v, 'note')) noteMap[v.url] = v.note || '';
                     if (v.created) createdMap[v.url] = v.created;
                     if (v.updated) updatedMap[v.url] = v.updated;
                 });
@@ -755,7 +785,8 @@
                 if (mode === 'update') {
                     // combine with existing (dedup by url)
                     const existingMap = {};
-                    [...(sheetData || []), ...cachedData].forEach(v => { existingMap[v.url] = v; });
+                    // Cloud rows are loaded after local cache so cross-device status/note changes win.
+                    [...cachedData, ...(sheetData || [])].forEach(v => { existingMap[v.url] = v; });
                     processedNew.forEach(v => { existingMap[v.url] = v; });
                     finalData = Object.values(existingMap).sort((a, b) => (b.datetime || '').localeCompare(a.datetime || ''));
                     log(`✅ Smart Update complete. Merged ${processedNew.length} new items. Total: ${finalData.length}`);
@@ -792,8 +823,9 @@
                 setVideos(finalData);
                 setCache(meta.channelId, finalData);
 
-                // === NEW: Sync to Google Sheets if connected ===
-                if (isGoogleReady) {
+                // Only write after a successful cloud read. This prevents a transient
+                // auth/network failure from overwriting newer cross-device sheet data.
+                if (googleReadSucceeded) {
                     await syncToGoogle(finalData, handle);
                 }
 
@@ -805,36 +837,14 @@
             }
         };
 
-        // --- Auto-Load Hook (enhanced) ---
+        // --- Zero-click startup sync ---
+        // One ordered pipeline avoids the old stale-state race:
+        // silent Google restore → Sheets read → YouTube smart update → Sheets write.
         useEffect(() => {
-            if (isInitialMount.current) {
-                isInitialMount.current = false;
-                const init = async () => {
-                    if (channelUrl) {
-                        // === Persistent Google login (cross reloads) ===
-                        // Only attempt silent restore if user previously had a successful Google connection
-                        // (stored lastAccountEmail on successful login).
-                        // Keeps you logged in after page reopen without extra prompts.
-                        // Interactive consent only requested when you explicitly click "Connect Google".
-                        const hasPrevGoogle = !!(gsConfig.clientId && nid(gsConfig.spreadsheetId) && gsConfig.lastAccountEmail);
-                        if (hasPrevGoogle && !isGoogleAuthed && !silentAttemptedRef.current) {
-                            silentAttemptedRef.current = true;
-                            try {
-                                await doGoogleAuth(false); // prompt: '' = try silent
-                                log('☁️ Google Sheets session restored');
-                            } catch (e) {
-                                // Normal: token expired or first visit without prior consent
-                                log('ℹ️ Google silent restore skipped (click Connect if needed)');
-                            }
-                        }
-                        await handleFetch('load');
-                        if (apiKey.trim()) {
-                            await handleFetch('update');
-                        }
-                    }
-                };
-                init();
+            if (channelUrl) {
+                handleFetch(apiKey.trim() ? 'update' : 'load');
             }
+            // Initial persisted values only; user-triggered updates use the toolbar actions.
             // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
 
@@ -964,7 +974,10 @@
 
         const handleGsConnect = async () => {
             try {
-                await doGoogleAuth(true);
+                await doGoogleAuth(true, true);
+                // A successful explicit connection immediately runs the same ordered sync
+                // as page startup; no separate Attach/Refresh click is required.
+                if (channelUrl) await handleFetch(apiKey.trim() ? 'update' : 'load');
             } catch (e) {
                 // error already logged
             }
@@ -974,41 +987,31 @@
             disconnectGoogle();
         };
 
-        const handleGsAttach = async (forceInteractive = false) => {
-            if (!nid(gsConfig.spreadsheetId)) {
+        const handleGsAttach = async () => {
+            const sid = nid(gsConfig.spreadsheetId);
+            if (!sid) {
                 setError('Please enter a valid Spreadsheet ID or URL first.');
                 return;
             }
-            if (!isGoogleAuthed) {
-                try {
-                    await doGoogleAuth(false);
-                    if (!isGoogleAuthed && forceInteractive) await doGoogleAuth(true);
-                } catch { 
-                    if (forceInteractive) return;
-                    // try one more time interactively
-                    try { await doGoogleAuth(true); } catch { return; }
-                }
-            }
-            if (!isGoogleAuthed) {
-                try { await doGoogleAuth(true); } catch { return; }
-            }
 
-            const token = gTokRef.current;
-            const sid = nid(gsConfig.spreadsheetId);
             try {
                 setGsSyncing(true);
                 const tab = getChannelTab(currentHandle || 'default', currentChannelId);
-                await ensureVideoTab(token, sid, tab);
+                const sheetData = await runWithGoogleAuthFromClick(async token => {
+                    await ensureVideoTab(token, sid, tab);
+                    const rows = currentHandle ? await readVideosFromSheet(token, sid, tab) : [];
+                    if (currentHandle && rows.length === 0 && videos?.length) {
+                        await writeVideosToSheet(token, sid, tab, videos);
+                    }
+                    return rows;
+                });
                 updateGsConfig({ spreadsheetId: sid, spreadsheetUrl: surl(sid) });
                 log('✅ Tab ensured: ' + tab);
 
-                // Immediately load latest from the tab
-                if (currentHandle) {
-                    const sheetData = await loadFromGoogle(currentHandle);
-                    if (sheetData && sheetData.length > 0) {
-                        setVideos(sheetData);
-                        if (currentChannelId) setCache(currentChannelId, sheetData);
-                    }
+                if (sheetData.length > 0) {
+                    setVideos(sheetData);
+                    if (currentChannelId) setCache(currentChannelId, sheetData);
+                    log(`☁️ Loaded ${sheetData.length} videos from tab: ${tab}`);
                 }
             } catch (e) {
                 setError('Ensure tab failed: ' + em(e));
@@ -1017,38 +1020,23 @@
             }
         };
 
-        // Auto-ensure tab silently when we have Google ready + spreadsheet
-        const autoEnsureTab = useCallback(async () => {
-            if (!isGoogleReady || !gsConfig.spreadsheetId || !currentHandle) return;
-            try {
-                const token = gTokRef.current;
-                const sid = nid(gsConfig.spreadsheetId);
-                const tab = getChannelTab(currentHandle, currentChannelId);
-                await ensureVideoTab(token, sid, tab);
-                // silent success — no log spam, only on first attach or error
-            } catch (e) {
-                // ignore silent ensure errors
-            }
-        }, [isGoogleReady, gsConfig.spreadsheetId, currentHandle, currentChannelId]);
-
         const handleCreateGsSpreadsheet = async () => {
-            if (!isGoogleAuthed) {
-                try { await doGoogleAuth(true); } catch { return; }
-            }
-            const token = gTokRef.current;
             const suggestedTitle = `YT Dashboard - ${currentHandle || 'Main'}`;
+            const tab = getChannelTab(currentHandle || 'default', currentChannelId);
             try {
                 setGsSyncing(true);
-                const created = await createNewSpreadsheet(token, suggestedTitle, getChannelTab(currentHandle || 'default', currentChannelId));
+                const created = await runWithGoogleAuthFromClick(async token => {
+                    const result = await createNewSpreadsheet(token, suggestedTitle, tab);
+                    if (videos?.length && currentHandle) {
+                        await writeVideosToSheet(token, result.spreadsheetId, tab, videos);
+                    }
+                    return result;
+                });
                 updateGsConfig({
                     spreadsheetId: created.spreadsheetId,
                     spreadsheetUrl: created.spreadsheetUrl
                 });
                 log(`✅ Created new spreadsheet: ${created.spreadsheetUrl}`);
-                // init with current data if any
-                if (videos && currentHandle) {
-                    await syncToGoogle(videos, currentHandle);
-                }
             } catch (e) {
                 setError('Create spreadsheet failed: ' + em(e));
             } finally {
@@ -1308,7 +1296,7 @@
                                         )}
                                         {isGoogleReady && (
                                             <button
-                                                onClick={() => handleGsAttach(false)}
+                                                onClick={handleGsAttach}
                                                 disabled={gsSyncing}
                                                 title="Ensure tab & reload from Google Sheets"
                                                 className={`${tbBtn} text-emerald-400 hover:bg-emerald-500/20`}
