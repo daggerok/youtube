@@ -363,6 +363,14 @@
         // Persistent Filters & Sort
         const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
         const [filters, setFilters] = useState(prefs.filters || { datetime: '', type: '', name: '', url: '', status: '', note: '' });
+        // Keep typing responsive and wait until the user pauses before applying filters.
+        // The draft value stays in the input, while processedVideos uses the debounced value.
+        const [appliedFilters, setAppliedFilters] = useState(filters);
+
+        useEffect(() => {
+            const timeoutId = setTimeout(() => setAppliedFilters(filters), 500);
+            return () => clearTimeout(timeoutId);
+        }, [filters]);
 
         // NEW: Google Sheets state (port from google impl)
         const [gsConfig, setGsConfig] = useState(gsCfg);
@@ -921,13 +929,14 @@
             setFilters(prev => ({ ...prev, [key]: value }));
         };
 
-        // --- Core Processed Data (unchanged) ---
+        // --- Core Processed Data ---
+        // Use the debounced filters so the table does not recalculate on every keystroke.
         const processedVideos = useMemo(() => {
             if (!videos) return [];
             let result = [...videos];
 
-            Object.keys(filters).forEach(key => {
-                const filterVal = filters[key].toLowerCase();
+            Object.keys(appliedFilters).forEach(key => {
+                const filterVal = appliedFilters[key].toLowerCase();
                 if (filterVal) {
                     result = result.filter(v => {
                         const cellVal = String(v[key] || (key === 'status' ? 'unwatched' : '')).toLowerCase();
@@ -945,7 +954,7 @@
             });
 
             return result;
-        }, [videos, sortConfig, filters]);
+        }, [videos, sortConfig, appliedFilters]);
 
         // --- Visual Helpers (unchanged) ---
         const getBadgeStyle = (type) => {
@@ -1062,7 +1071,9 @@
         const tbBtn = 'w-full md:w-9 h-9 rounded-lg border-0 bg-transparent transition-all flex items-center justify-center disabled:opacity-40 text-base';
         const iconBtn = 'w-7 h-7 rounded-md border-0 bg-transparent flex items-center justify-center text-xs transition-all active:scale-95 flex-shrink-0';
 
-        const Th = ({ label, columnKey, width }) => (
+        // Render headers inline instead of as a component created during every App render.
+        // Recreating a nested component remounts its input and makes the caret lose focus.
+        const renderTh = ({ label, columnKey, width }) => (
             <th className={`px-4 align-top ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                 <div className="flex flex-col gap-1.5">
                     <button
@@ -1464,12 +1475,12 @@
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
                                         <tr className={dark ? 'text-slate-400' : 'text-slate-500'}>
-                                            <Th label="Datetime" columnKey="datetime" width="w-44" />
-                                            <Th label="Type" columnKey="type" width="w-28" />
-                                            <Th label="Name" columnKey="name" />
-                                            <Th label="URL" columnKey="url" width="w-24" />
-                                            <Th label="Status" columnKey="status" width="w-36" />
-                                            <Th label="Note" columnKey="note" width="w-48" />
+                                            {renderTh({ label: 'Datetime', columnKey: 'datetime', width: 'w-44' })}
+                                            {renderTh({ label: 'Type', columnKey: 'type', width: 'w-28' })}
+                                            {renderTh({ label: 'Name', columnKey: 'name' })}
+                                            {renderTh({ label: 'URL', columnKey: 'url', width: 'w-24' })}
+                                            {renderTh({ label: 'Status', columnKey: 'status', width: 'w-36' })}
+                                            {renderTh({ label: 'Note', columnKey: 'note', width: 'w-48' })}
                                         </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
