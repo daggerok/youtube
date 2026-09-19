@@ -102,6 +102,7 @@
 <body class="min-h-screen">
 <div id="root"></div>
 
+<script src="./filters.js"></script>
 <script type="text/babel" data-presets="react">
     const React = window.React || {};
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -918,7 +919,7 @@
             link.click();
         };
 
-        // --- Sort & Filter (unchanged) ---
+        // --- Sort & Filter ---
         const requestSort = (key) => {
             let direction = 'asc';
             if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
@@ -936,11 +937,12 @@
             let result = [...videos];
 
             Object.keys(appliedFilters).forEach(key => {
-                const filterVal = appliedFilters[key].toLowerCase();
+                const filterVal = appliedFilters[key];
                 if (filterVal) {
+                    const matches = compileTextFilter(filterVal);
                     result = result.filter(v => {
-                        const cellVal = String(v[key] || (key === 'status' ? 'unwatched' : '')).toLowerCase();
-                        return cellVal.includes(filterVal);
+                        const cellVal = v[key] || (key === 'status' ? 'unwatched' : '');
+                        return matches(cellVal);
                     });
                 }
             });
@@ -1089,7 +1091,7 @@
                     <input
                         type="text"
                         placeholder="Filter..."
-                        title={`Filter by ${label}`}
+                        title={`Filter by ${label}. ${FILTER_HELP}`}
                         value={filters[columnKey]}
                         onChange={(e) => handleFilterChange(columnKey, e.target.value)}
                         className={`w-full px-2 py-1 text-[10px] rounded border focus:outline-none focus:border-emerald-500 transition-colors ${inpFilter}`}
@@ -1560,8 +1562,8 @@
                                 {/* Mobile Cards — compact icons instead of large action buttons */}
                                 <div className="block md:hidden p-3 space-y-2">
                                     <div className="pb-1 flex gap-2">
-                                        <input type="text" placeholder="Filter Name..." title="Filter by Name" value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-0 px-3 py-2 text-xs rounded border ${inpFilter}`} />
-                                        <input type="text" placeholder="Filter Status..." title="Filter by Status" value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                        <input type="text" placeholder="Filter Name..." title={`Filter by Name. ${FILTER_HELP}`} value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-0 px-3 py-2 text-xs rounded border ${inpFilter}`} />
+                                        <input type="text" placeholder="Filter Status..." title={`Filter by Status. ${FILTER_HELP}`} value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                     </div>
                                     {processedVideos.map((v, i) => {
                                         const status = v.status || 'unwatched';
