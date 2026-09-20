@@ -1482,7 +1482,7 @@
                                             {renderTh({ label: 'Name', columnKey: 'name' })}
                                             {renderTh({ label: 'URL', columnKey: 'url', width: 'w-24' })}
                                             {renderTh({ label: 'Status', columnKey: 'status', width: 'w-36' })}
-                                            {renderTh({ label: 'Note', columnKey: 'note', width: 'w-64' })}
+                                            {renderTh({ label: 'Note', columnKey: 'note', width: 'w-24' })}
                                         </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
@@ -1498,8 +1498,26 @@
                                                             {v.type}
                                                         </span>
                                                     </td>
-                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
-                                                        {v.name}
+                                                    {/* Keep the note with its video title; the Note column is only the edit trigger. */}
+                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl align-top`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        <div className="space-y-1">
+                                                            <div className="truncate" title={v.name}>{v.name}</div>
+                                                            {editNoteUrl === v.url ? (
+                                                                <textarea
+                                                                    rows={2}
+                                                                    autoFocus
+                                                                    value={editNoteText}
+                                                                    onChange={e => setEditNoteText(e.target.value)}
+                                                                    onBlur={() => saveNote(v.url, editNoteText)}
+                                                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
+                                                                    className={`w-full px-2 py-1 text-[11px] font-normal rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                                    title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
+                                                                    placeholder="Write a note…"
+                                                                />
+                                                            ) : (v.note && v.note.trim()) ? (
+                                                                <p className={`text-[11px] font-normal leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
+                                                            ) : null}
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
@@ -1515,40 +1533,22 @@
                                                             {statusMeta.label}
                                                         </button>
                                                     </td>
-                                                    {/* Note cell — same view/edit pattern as the mobile cards:
-                                                        simple pen icon button + fully visible note text. */}
+                                                    {/* The Note column only opens the editor shown below the video title. */}
                                                     <td className="px-4 align-top" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <div className="space-y-1">
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (editNoteUrl === v.url) { setEditNoteUrl(null); setEditNoteText(''); }
-                                                                    else { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }
-                                                                }}
-                                                                title={v.note ? 'Edit note' : 'Add note'}
-                                                                data-tip={v.note ? 'Edit note' : 'Add note'}
-                                                                aria-label={v.note ? 'Edit note' : 'Add note'}
-                                                                className={`has-tip ${iconBtn} ${editNoteUrl === v.url || (v.note && v.note.trim())
-                                                                    ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100')
-                                                                    : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100')}`}
-                                                            >
-                                                                {(v.note && v.note.trim()) ? '📝' : '✏️'}
-                                                            </button>
-                                                            {editNoteUrl === v.url ? (
-                                                                <textarea
-                                                                    rows={2}
-                                                                    autoFocus
-                                                                    value={editNoteText}
-                                                                    onChange={e => setEditNoteText(e.target.value)}
-                                                                    onBlur={() => saveNote(v.url, editNoteText)}
-                                                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                                    className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
-                                                                    title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
-                                                                    placeholder="Write a note…"
-                                                                />
-                                                            ) : (v.note && v.note.trim()) ? (
-                                                                <p className={`text-[11px] leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
-                                                            ) : null}
-                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (editNoteUrl === v.url) { setEditNoteUrl(null); setEditNoteText(''); }
+                                                                else { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }
+                                                            }}
+                                                            title={v.note ? 'Edit note' : 'Add note'}
+                                                            data-tip={v.note ? 'Edit note' : 'Add note'}
+                                                            aria-label={v.note ? 'Edit note' : 'Add note'}
+                                                            className={`has-tip ${iconBtn} ${editNoteUrl === v.url || (v.note && v.note.trim())
+                                                                ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100')
+                                                                : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100')}`}
+                                                        >
+                                                            {(v.note && v.note.trim()) ? '📝' : '✏️'}
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             );
