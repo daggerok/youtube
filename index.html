@@ -1094,6 +1094,8 @@
         const scCls = dark ? 'dark-scroll' : 'light-scroll';
 
         const tblFs = `${Math.round(14 * scale)}px`;
+        // Keep note copy and editors at the same 11:14 proportion to video titles.
+        const noteFs = `${Math.round(11 * scale)}px`;
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
         const tbBtn = 'w-full md:w-9 h-9 rounded-lg border-0 bg-transparent transition-all flex items-center justify-center disabled:opacity-40 text-base';
@@ -1536,12 +1538,18 @@
                                                                     onChange={e => setEditNoteText(e.target.value)}
                                                                     onBlur={() => saveNote(v.url, editNoteText)}
                                                                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                                    className={`w-full px-2 py-1 text-[11px] font-normal rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                                    className={`w-full px-2 py-1 font-normal rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                                    style={{ fontSize: noteFs }}
                                                                     title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
                                                                     placeholder="Write a note…"
                                                                 />
                                                             ) : (v.note && v.note.trim()) ? (
-                                                                <p className={`text-[11px] font-normal leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
+                                                                <p
+                                                                    className={`font-normal leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}
+                                                                    style={{ fontSize: noteFs }}
+                                                                >
+                                                                    {v.note}
+                                                                </p>
                                                             ) : null}
                                                         </div>
                                                     </td>
@@ -1647,7 +1655,7 @@
                                                         </button>
                                                     </div>
                                                 </div>
-                                                <h4 className={`font-semibold text-sm leading-snug ${t1}`}>{v.name}</h4>
+                                                <h4 className={`font-semibold leading-snug ${t1}`} style={{ fontSize: tblFs }}>{v.name}</h4>
                                                 {editNoteUrl === v.url ? (
                                                     <textarea
                                                         rows={3}
@@ -1656,12 +1664,18 @@
                                                         onChange={e => setEditNoteText(e.target.value)}
                                                         onBlur={() => saveNote(v.url, editNoteText)}
                                                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                        className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                        className={`w-full px-2 py-1 rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                        style={{ fontSize: noteFs }}
                                                         title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
                                                         placeholder="Write a note…"
                                                     />
                                                 ) : (v.note && v.note.trim()) ? (
-                                                    <p className={`text-[10px] leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
+                                                    <p
+                                                        className={`leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}
+                                                        style={{ fontSize: noteFs }}
+                                                    >
+                                                        {v.note}
+                                                    </p>
                                                 ) : null}
                                             </div>
                                         );
