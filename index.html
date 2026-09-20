@@ -168,6 +168,13 @@
     const sliderToScale = v => 0.7 + (v / 100) * 0.8;
     const DEFAULT_SCALE_SLIDER = 50;
 
+    // Keep the borderless inline note editor exactly as tall as its content.
+    const fitNoteEditorToContent = (textarea) => {
+        if (!textarea) return;
+        textarea.style.height = '0px';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    };
+
     // --- Google Sheets constants (adapted from google impl) ---
     const DEFAULT_SHEET_PREFIX = 'YT-';
     const VIDEO_HEADERS = ['datetime', 'type', 'name', 'url', 'status', 'note', 'created', 'updated'];
@@ -1088,6 +1095,7 @@
         const inp = dark ? 'bg-slate-800 border-slate-700 text-emerald-400' : 'bg-slate-50 border-slate-300 text-emerald-700';
         const inpFilter = dark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800';
         const mt = dark ? 'text-slate-400' : 'text-slate-500';
+        const noteText = dark ? 'text-slate-400' : 'text-slate-500';
         const t1 = dark ? 'text-slate-100' : 'text-slate-800';
         const sB = dark ? 'bg-slate-800' : 'bg-white';
         const hR = dark ? 'hover:bg-slate-700/20' : 'hover:bg-slate-50';
@@ -1532,20 +1540,22 @@
                                                             <div className="truncate" title={v.name}>{v.name}</div>
                                                             {editNoteUrl === v.url ? (
                                                                 <textarea
-                                                                    rows={2}
+                                                                    rows={1}
+                                                                    ref={element => fitNoteEditorToContent(element)}
                                                                     autoFocus
                                                                     value={editNoteText}
                                                                     onChange={e => setEditNoteText(e.target.value)}
+                                                                    onInput={e => fitNoteEditorToContent(e.currentTarget)}
                                                                     onBlur={() => saveNote(v.url, editNoteText)}
                                                                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                                    className={`w-full px-2 py-1 font-normal rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                                    className={`block w-full m-0 p-0 border-0 rounded-none bg-transparent shadow-none appearance-none font-normal leading-snug whitespace-pre-wrap break-words resize-none overflow-hidden focus:outline-none focus:ring-0 ${noteText}`}
                                                                     style={{ fontSize: noteFs }}
                                                                     title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
                                                                     placeholder="Write a note…"
                                                                 />
                                                             ) : (v.note && v.note.trim()) ? (
                                                                 <p
-                                                                    className={`font-normal leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}
+                                                                    className={`block w-full m-0 p-0 font-normal leading-snug whitespace-pre-wrap break-words ${noteText}`}
                                                                     style={{ fontSize: noteFs }}
                                                                 >
                                                                     {v.note}
@@ -1658,20 +1668,22 @@
                                                 <h4 className={`font-semibold leading-snug ${t1}`} style={{ fontSize: tblFs }}>{v.name}</h4>
                                                 {editNoteUrl === v.url ? (
                                                     <textarea
-                                                        rows={3}
+                                                        rows={1}
+                                                        ref={element => fitNoteEditorToContent(element)}
                                                         autoFocus
                                                         value={editNoteText}
                                                         onChange={e => setEditNoteText(e.target.value)}
+                                                        onInput={e => fitNoteEditorToContent(e.currentTarget)}
                                                         onBlur={() => saveNote(v.url, editNoteText)}
                                                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                        className={`w-full px-2 py-1 rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                        className={`block w-full m-0 p-0 border-0 rounded-none bg-transparent shadow-none appearance-none font-normal leading-snug whitespace-pre-wrap break-words resize-none overflow-hidden focus:outline-none focus:ring-0 ${noteText}`}
                                                         style={{ fontSize: noteFs }}
                                                         title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
                                                         placeholder="Write a note…"
                                                     />
                                                 ) : (v.note && v.note.trim()) ? (
                                                     <p
-                                                        className={`leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}
+                                                        className={`block w-full m-0 p-0 font-normal leading-snug whitespace-pre-wrap break-words ${noteText}`}
                                                         style={{ fontSize: noteFs }}
                                                     >
                                                         {v.note}
