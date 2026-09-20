@@ -1,6 +1,13 @@
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { compileTextFilter } = require('../filters.js');
+const vm = require('node:vm');
+
+const html = readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const filterScript = html.match(/<script id="filter-utils">([\s\S]*?)<\/script>/);
+assert.ok(filterScript, 'index.html must contain the inline filter utilities');
+const { compileTextFilter } = vm.runInNewContext(`${filterScript[1]}\n({ compileTextFilter });`);
 
 test('plain phrases preserve spaces and match case-insensitively', () => {
     const matches = compileTextFilter('2022 Mentorship');

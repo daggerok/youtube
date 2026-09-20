@@ -35,6 +35,14 @@
         .light-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
         .light-scroll{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
 
+        /* Switch to cards before the desktop columns become cramped or disappear. */
+        .inventory-desktop{display:none}
+        .inventory-mobile{display:block}
+        @media (min-width:1440px){
+            .inventory-desktop{display:block}
+            .inventory-mobile{display:none}
+        }
+
         .console-wrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease-out,opacity .25s ease-out;opacity:0;overflow:hidden}
         .console-wrap.open{grid-template-rows:1fr;opacity:1}
         .console-inner{overflow:hidden;min-height:0}
@@ -102,7 +110,33 @@
 <body class="min-h-screen">
 <div id="root"></div>
 
-<script src="./filters.js"></script>
+<script id="filter-utils">
+    // Shared by every desktop and mobile column filter.
+    // OR separates alternatives; * and & join literal phrases in occurrence order.
+    function compileTextFilter(query) {
+        const alternatives = String(query ?? '').toLowerCase().split('|')
+            .map(alternative => alternative.split(/[*&]/).filter(term => term !== ''))
+            .filter(terms => terms.length > 0);
+
+        // Ignore empty operands while typing, rather than making an empty OR match all.
+        if (alternatives.length === 0) return () => true;
+
+        return value => {
+            const text = String(value ?? '').toLowerCase();
+            return alternatives.some(terms => {
+                let offset = 0;
+                return terms.every(term => {
+                    const index = text.indexOf(term, offset);
+                    if (index === -1) return false;
+                    offset = index + term.length;
+                    return true;
+                });
+            });
+        };
+    }
+
+    const FILTER_HELP = 'Case-insensitive literal phrases; spaces are literal. Use * or & for AND in order, | for OR. AND is evaluated before OR.';
+</script>
 <script type="text/babel" data-presets="react">
     const React = window.React || {};
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -141,6 +175,13 @@
 
     const sliderToScale = v => 0.7 + (v / 100) * 0.8;
     const DEFAULT_SCALE_SLIDER = 50;
+
+    // Keep the borderless inline note editor exactly as tall as its content.
+    const fitNoteEditorToContent = (textarea) => {
+        if (!textarea) return;
+        textarea.style.height = '0px';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    };
 
     // --- Google Sheets constants (adapted from google impl) ---
     const DEFAULT_SHEET_PREFIX = 'YT-';
@@ -360,6 +401,7 @@
         const [showDebug, setShowDebug] = useState(false);
         const [editNoteUrl, setEditNoteUrl] = useState(null);
         const [editNoteText, setEditNoteText] = useState('');
+        const cancelNoteBlurRef = useRef(false);
 
         // Persistent Filters & Sort
         const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
@@ -874,6 +916,37 @@
             }
         };
 
+        const openNoteEditor = (video) => {
+            setEditNoteUrl(video.url);
+            setEditNoteText(video.note || '');
+        };
+
+        const cancelNoteEdit = () => {
+            // Ignore a blur caused by removing the focused editor during cancellation.
+            cancelNoteBlurRef.current = true;
+            setEditNoteUrl(null);
+            setEditNoteText('');
+            setTimeout(() => { cancelNoteBlurRef.current = false; }, 0);
+        };
+
+        const handleNoteEditorBlur = (url) => {
+            if (cancelNoteBlurRef.current) {
+                cancelNoteBlurRef.current = false;
+                return;
+            }
+            saveNote(url, editNoteText);
+        };
+
+        const handleNoteEditorKeyDown = (event, url) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                saveNote(url, editNoteText);
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelNoteEdit();
+            }
+        };
+
         // --- Status Toggle (enhanced with GS) ---
         const toggleStatus = (url) => {
             if (!currentChannelId || !videos || !currentHandle) return;
@@ -971,11 +1044,21 @@
             return { label: '⚪️ Unwatched', cls: dark ? 'text-slate-400 bg-slate-800 border-slate-700' : 'text-slate-500 bg-slate-100 border-slate-200' };
         };
 
+        const formatDateParts = (isoStr) => {
+            const value = new Date(isoStr);
+            return {
+                date: value.toLocaleDateString('en-US', {
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                }),
+                time: value.toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                })
+            };
+        };
+
         const formatDate = (isoStr) => {
-            return new Date(isoStr).toLocaleString('en-US', {
-                year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', hour12: false
-            });
+            const datetime = formatDateParts(isoStr);
+            return `${datetime.date}, ${datetime.time}`;
         };
 
         // --- GS config updater ---
@@ -1062,16 +1145,68 @@
         const inp = dark ? 'bg-slate-800 border-slate-700 text-emerald-400' : 'bg-slate-50 border-slate-300 text-emerald-700';
         const inpFilter = dark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-300 text-slate-800';
         const mt = dark ? 'text-slate-400' : 'text-slate-500';
+        const noteText = dark ? 'text-slate-400' : 'text-slate-500';
+        const noteEditText = dark ? 'text-slate-300 placeholder:text-slate-500' : 'text-slate-700 placeholder:text-slate-400';
         const t1 = dark ? 'text-slate-100' : 'text-slate-800';
         const sB = dark ? 'bg-slate-800' : 'bg-white';
         const hR = dark ? 'hover:bg-slate-700/20' : 'hover:bg-slate-50';
         const scCls = dark ? 'dark-scroll' : 'light-scroll';
 
         const tblFs = `${Math.round(14 * scale)}px`;
+        // Keep note copy and editors at the same 11:14 proportion to video titles.
+        const noteFs = `${Math.round(11 * scale)}px`;
         const tblHFs = `${Math.round(11 * scale)}px`;
         const tblCellPy = `${Math.round(10 * scale)}px`;
         const tbBtn = 'w-full md:w-9 h-9 rounded-lg border-0 bg-transparent transition-all flex items-center justify-center disabled:opacity-40 text-base';
         const iconBtn = 'w-7 h-7 rounded-md border-0 bg-transparent flex items-center justify-center text-xs transition-all active:scale-95 flex-shrink-0';
+        const noteDecisionBtn = 'w-7 h-7 rounded-md border-0 bg-transparent flex items-center justify-center text-base font-bold transition-all active:scale-95 flex-shrink-0';
+
+        const renderNoteActions = (video) => {
+            if (editNoteUrl === video.url) {
+                return (
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            type="button"
+                            onPointerDown={event => event.preventDefault()}
+                            onClick={() => saveNote(video.url, editNoteText)}
+                            title="Save note (Enter)"
+                            data-tip="Save (Enter)"
+                            aria-label="Save note"
+                            className={`has-tip ${noteDecisionBtn} ${dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100'}`}
+                        >
+                            ✓
+                        </button>
+                        <button
+                            type="button"
+                            onPointerDown={event => event.preventDefault()}
+                            onClick={cancelNoteEdit}
+                            title="Cancel note changes (Escape)"
+                            data-tip="Cancel (Esc)"
+                            aria-label="Cancel note changes"
+                            className={`has-tip ${noteDecisionBtn} ${dark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-600 hover:bg-red-100'}`}
+                        >
+                            ✕
+                        </button>
+                    </div>
+                );
+            }
+
+            const hasNote = Boolean(video.note && video.note.trim());
+            return (
+                <button
+                    type="button"
+                    onClick={() => openNoteEditor(video)}
+                    title={hasNote ? 'Edit note' : 'Add note'}
+                    data-tip={hasNote ? 'Edit note' : 'Add note'}
+                    aria-label={hasNote ? 'Edit note' : 'Add note'}
+                    className={`has-tip ${iconBtn} ${hasNote
+                        ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100')
+                        : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100')}`}
+                >
+                    ✏️
+                </button>
+            );
+        };
 
         // Render headers inline instead of as a component created during every App render.
         // Recreating a nested component remounts its input and makes the caret lose focus.
@@ -1255,7 +1390,7 @@
             <React.Fragment>
                 {/* Navbar */}
                 <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md`}>
-                    <div className="px-4 xl:px-8">
+                    <div className="px-4">
                         <div className="flex flex-col md:flex-row md:items-center gap-2 py-3">
                             {/* Input first (full width on mobile) */}
                             <div className="w-full md:flex-1 min-w-0">
@@ -1381,7 +1516,7 @@
                 </div>
 
                 {/* Main Workspace Area */}
-                <div className="px-4 xl:px-8 py-1">
+                <div className="px-4 py-1">
                     {/* Settings Panel — EXACT same width + style as the inventory table, animated collapse */}
                     <div className={`settings-wrap ${showSettings ? 'open mb-2' : ''}`}>
                         <div className={`${card} border rounded-xl overflow-hidden shadow-lg text-sm`}>
@@ -1454,7 +1589,7 @@
                                 <div className={`px-4 py-3 bg-gradient-to-r ${dark ? 'from-slate-900/30 to-slate-900/10' : 'from-slate-50 to-slate-100/50'} flex items-center justify-between gap-4`}>
                                     <div>
                                         <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(16 * scale)}px` }}>
-                                            📋 Channel Inventory ({processedVideos.length} / {videos.length})
+                                            {processedVideos.length} / {videos.length}
                                         </h3>
                                         {isGoogleReady && currentHandle && (
                                             <div className="text-[10px] mt-0.5 text-emerald-400 flex items-center gap-1">
@@ -1473,7 +1608,7 @@
                                 </div>
 
                                 {/* Desktop Table */}
-                                <div className={`hidden md:block overflow-x-auto ${scCls}`}>
+                                <div className={`inventory-desktop overflow-x-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
                                         <tr className={dark ? 'text-slate-400' : 'text-slate-500'}>
@@ -1482,24 +1617,55 @@
                                             {renderTh({ label: 'Name', columnKey: 'name' })}
                                             {renderTh({ label: 'URL', columnKey: 'url', width: 'w-24' })}
                                             {renderTh({ label: 'Status', columnKey: 'status', width: 'w-36' })}
-                                            {renderTh({ label: 'Note', columnKey: 'note', width: 'w-64' })}
+                                            {renderTh({ label: 'Note', columnKey: 'note', width: 'w-24' })}
                                         </tr>
                                         </thead>
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
                                         {processedVideos.map((v, i) => {
                                             const statusMeta = getStatusDisplay(v.status || 'unwatched');
+                                            const datetime = formatDateParts(v.datetime);
                                             return (
                                                 <tr key={i} className={`${hR} transition-colors group`}>
                                                     <td className={`px-4 font-mono ${mt} sticky left-0 z-10 ${sB} whitespace-nowrap`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        {formatDate(v.datetime)}
+                                                        <span className="hidden 2xl:inline">{datetime.date}, {datetime.time}</span>
+                                                        <span className="block 2xl:hidden leading-tight">
+                                                            <span className="block">{datetime.date}</span>
+                                                            <span className="block">{datetime.time}</span>
+                                                        </span>
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <span className={`px-2 py-0.5 text-[11px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>
                                                             {v.type}
                                                         </span>
                                                     </td>
-                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl truncate`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }} title={v.name}>
-                                                        {v.name}
+                                                    {/* Keep the note with its video title; the Note column is only the edit trigger. */}
+                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl align-top`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                        <div className="space-y-1">
+                                                            <div className="truncate" title={v.name}>{v.name}</div>
+                                                            {editNoteUrl === v.url ? (
+                                                                <textarea
+                                                                    rows={1}
+                                                                    ref={element => fitNoteEditorToContent(element)}
+                                                                    autoFocus
+                                                                    value={editNoteText}
+                                                                    onChange={e => setEditNoteText(e.target.value)}
+                                                                    onInput={e => fitNoteEditorToContent(e.currentTarget)}
+                                                                    onBlur={() => handleNoteEditorBlur(v.url)}
+                                                                    onKeyDown={event => handleNoteEditorKeyDown(event, v.url)}
+                                                                    className={`block w-full m-0 p-0 border-0 rounded-none bg-transparent shadow-none appearance-none font-normal leading-snug whitespace-pre-wrap break-words resize-none overflow-hidden focus:outline-none focus:ring-0 ${noteEditText}`}
+                                                                    style={{ fontSize: noteFs }}
+                                                                    title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
+                                                                    placeholder="Write a note…"
+                                                                />
+                                                            ) : (v.note && v.note.trim()) ? (
+                                                                <p
+                                                                    className={`block w-full m-0 p-0 font-normal leading-snug whitespace-pre-wrap break-words ${noteText}`}
+                                                                    style={{ fontSize: noteFs }}
+                                                                >
+                                                                    {v.note}
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
@@ -1515,40 +1681,9 @@
                                                             {statusMeta.label}
                                                         </button>
                                                     </td>
-                                                    {/* Note cell — same view/edit pattern as the mobile cards:
-                                                        simple pen icon button + fully visible note text. */}
+                                                    {/* The Note column shows edit, save, and cancel controls for the inline editor. */}
                                                     <td className="px-4 align-top" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <div className="space-y-1">
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (editNoteUrl === v.url) { setEditNoteUrl(null); setEditNoteText(''); }
-                                                                    else { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }
-                                                                }}
-                                                                title={v.note ? 'Edit note' : 'Add note'}
-                                                                data-tip={v.note ? 'Edit note' : 'Add note'}
-                                                                aria-label={v.note ? 'Edit note' : 'Add note'}
-                                                                className={`has-tip ${iconBtn} ${editNoteUrl === v.url || (v.note && v.note.trim())
-                                                                    ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100')
-                                                                    : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100')}`}
-                                                            >
-                                                                {(v.note && v.note.trim()) ? '📝' : '✏️'}
-                                                            </button>
-                                                            {editNoteUrl === v.url ? (
-                                                                <textarea
-                                                                    rows={2}
-                                                                    autoFocus
-                                                                    value={editNoteText}
-                                                                    onChange={e => setEditNoteText(e.target.value)}
-                                                                    onBlur={() => saveNote(v.url, editNoteText)}
-                                                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                                    className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
-                                                                    title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
-                                                                    placeholder="Write a note…"
-                                                                />
-                                                            ) : (v.note && v.note.trim()) ? (
-                                                                <p className={`text-[11px] leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
-                                                            ) : null}
-                                                        </div>
+                                                        {renderNoteActions(v)}
                                                     </td>
                                                 </tr>
                                             );
@@ -1563,13 +1698,14 @@
                                 </div>
 
                                 {/* Mobile Cards — compact icons instead of large action buttons */}
-                                <div className="block md:hidden p-3 space-y-2">
+                                <div className="inventory-mobile p-3 space-y-2">
                                     <div className="pb-1 flex gap-2">
                                         <input type="text" placeholder="Filter Name..." title={`Filter by Name. ${FILTER_HELP}`} value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-0 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                         <input type="text" placeholder="Filter Status..." title={`Filter by Status. ${FILTER_HELP}`} value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                     </div>
                                     {processedVideos.map((v, i) => {
                                         const status = v.status || 'unwatched';
+                                        const datetime = formatDateParts(v.datetime);
                                         const statusIcon = status === 'watched' ? '🟢' : status === 'watching' ? '🟡' : '⚪️';
                                         const statusTip = status === 'watched' ? 'Watched — tap to mark unwatched' : status === 'watching' ? 'Watching — tap to mark watched' : 'Unwatched — tap to mark watching';
                                         const statusIconStyle = status === 'watched'
@@ -1582,7 +1718,9 @@
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0 flex-1 flex items-center gap-2">
                                                         <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md flex-shrink-0 ${getBadgeStyle(v.type)}`}>{v.type}</span>
-                                                        <span className="text-[11px] font-mono opacity-60 truncate">{formatDate(v.datetime)}</span>
+                                                        <span className="text-[11px] font-mono opacity-60 whitespace-nowrap flex-shrink-0">
+                                                            {datetime.date} {datetime.time}
+                                                        </span>
                                                     </div>
                                                     <div className="flex items-center gap-0.5 flex-shrink-0">
                                                         <button
@@ -1605,37 +1743,32 @@
                                                         >
                                                             ▶
                                                         </a>
-                                                        <button
-                                                            onClick={() => {
-                                                                if (editNoteUrl === v.url) { setEditNoteUrl(null); setEditNoteText(''); }
-                                                                else { setEditNoteUrl(v.url); setEditNoteText(v.note || ''); }
-                                                            }}
-                                                            title={v.note ? 'Edit note' : 'Add note'}
-                                                            data-tip={v.note ? 'Edit note' : 'Add note'}
-                                                            aria-label={v.note ? 'Edit note' : 'Add note'}
-                                                            className={`has-tip ${iconBtn} ${editNoteUrl === v.url || (v.note && v.note.trim())
-                                                                ? (dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-700 hover:bg-emerald-100')
-                                                                : (dark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100')}`}
-                                                        >
-                                                            {(v.note && v.note.trim()) ? '📝' : '✏️'}
-                                                        </button>
+                                                        {renderNoteActions(v)}
                                                     </div>
                                                 </div>
-                                                <h4 className={`font-semibold text-sm leading-snug ${t1}`}>{v.name}</h4>
+                                                <h4 className={`font-semibold leading-snug ${t1}`} style={{ fontSize: tblFs }}>{v.name}</h4>
                                                 {editNoteUrl === v.url ? (
                                                     <textarea
-                                                        rows={3}
+                                                        rows={1}
+                                                        ref={element => fitNoteEditorToContent(element)}
                                                         autoFocus
                                                         value={editNoteText}
                                                         onChange={e => setEditNoteText(e.target.value)}
-                                                        onBlur={() => saveNote(v.url, editNoteText)}
-                                                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveNote(v.url, editNoteText); } if (e.key === 'Escape') { setEditNoteUrl(null); setEditNoteText(''); } }}
-                                                        className={`w-full px-2 py-1 text-[11px] rounded border focus:outline-none focus:border-emerald-500 transition-colors resize-y ${inpFilter}`}
+                                                        onInput={e => fitNoteEditorToContent(e.currentTarget)}
+                                                        onBlur={() => handleNoteEditorBlur(v.url)}
+                                                        onKeyDown={event => handleNoteEditorKeyDown(event, v.url)}
+                                                        className={`block w-full m-0 p-0 border-0 rounded-none bg-transparent shadow-none appearance-none font-normal leading-snug whitespace-pre-wrap break-words resize-none overflow-hidden focus:outline-none focus:ring-0 ${noteEditText}`}
+                                                        style={{ fontSize: noteFs }}
                                                         title="Edit note (Enter to save, Shift+Enter for a new line, Esc to cancel)"
                                                         placeholder="Write a note…"
                                                     />
                                                 ) : (v.note && v.note.trim()) ? (
-                                                    <p className={`text-[10px] leading-snug whitespace-pre-wrap break-words ${dark ? 'text-slate-400' : 'text-slate-500'}`}>{v.note}</p>
+                                                    <p
+                                                        className={`block w-full m-0 p-0 font-normal leading-snug whitespace-pre-wrap break-words ${noteText}`}
+                                                        style={{ fontSize: noteFs }}
+                                                    >
+                                                        {v.note}
+                                                    </p>
                                                 ) : null}
                                             </div>
                                         );
