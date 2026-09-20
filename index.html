@@ -35,6 +35,14 @@
         .light-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
         .light-scroll{scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
 
+        /* Switch to cards before the desktop columns become cramped or disappear. */
+        .inventory-desktop{display:none}
+        .inventory-mobile{display:block}
+        @media (min-width:1440px){
+            .inventory-desktop{display:block}
+            .inventory-mobile{display:none}
+        }
+
         .console-wrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s ease-out,opacity .25s ease-out;opacity:0;overflow:hidden}
         .console-wrap.open{grid-template-rows:1fr;opacity:1}
         .console-inner{overflow:hidden;min-height:0}
@@ -1600,7 +1608,7 @@
                                 </div>
 
                                 {/* Desktop Table */}
-                                <div className={`hidden md:block overflow-x-auto ${scCls}`}>
+                                <div className={`inventory-desktop overflow-x-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
                                         <tr className={dark ? 'text-slate-400' : 'text-slate-500'}>
@@ -1690,7 +1698,7 @@
                                 </div>
 
                                 {/* Mobile Cards — compact icons instead of large action buttons */}
-                                <div className="block md:hidden p-3 space-y-2">
+                                <div className="inventory-mobile p-3 space-y-2">
                                     <div className="pb-1 flex gap-2">
                                         <input type="text" placeholder="Filter Name..." title={`Filter by Name. ${FILTER_HELP}`} value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-0 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                         <input type="text" placeholder="Filter Status..." title={`Filter by Status. ${FILTER_HELP}`} value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
