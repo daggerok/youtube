@@ -1004,11 +1004,21 @@
             return { label: '⚪️ Unwatched', cls: dark ? 'text-slate-400 bg-slate-800 border-slate-700' : 'text-slate-500 bg-slate-100 border-slate-200' };
         };
 
+        const formatDateParts = (isoStr) => {
+            const value = new Date(isoStr);
+            return {
+                date: value.toLocaleDateString('en-US', {
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                }),
+                time: value.toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                })
+            };
+        };
+
         const formatDate = (isoStr) => {
-            return new Date(isoStr).toLocaleString('en-US', {
-                year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', hour12: false
-            });
+            const datetime = formatDateParts(isoStr);
+            return `${datetime.date}, ${datetime.time}`;
         };
 
         // --- GS config updater ---
@@ -1490,7 +1500,7 @@
                                 <div className={`px-4 py-3 bg-gradient-to-r ${dark ? 'from-slate-900/30 to-slate-900/10' : 'from-slate-50 to-slate-100/50'} flex items-center justify-between gap-4`}>
                                     <div>
                                         <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(16 * scale)}px` }}>
-                                            📋 Channel Inventory ({processedVideos.length} / {videos.length})
+                                            {processedVideos.length} / {videos.length}
                                         </h3>
                                         {isGoogleReady && currentHandle && (
                                             <div className="text-[10px] mt-0.5 text-emerald-400 flex items-center gap-1">
@@ -1524,10 +1534,15 @@
                                         <tbody className={`divide-y ${dark ? 'divide-slate-700/30' : 'divide-slate-100'}`}>
                                         {processedVideos.map((v, i) => {
                                             const statusMeta = getStatusDisplay(v.status || 'unwatched');
+                                            const datetime = formatDateParts(v.datetime);
                                             return (
                                                 <tr key={i} className={`${hR} transition-colors group`}>
                                                     <td className={`px-4 font-mono ${mt} sticky left-0 z-10 ${sB} whitespace-nowrap`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        {formatDate(v.datetime)}
+                                                        <span className="hidden 2xl:inline">{datetime.date}, {datetime.time}</span>
+                                                        <span className="block 2xl:hidden leading-tight">
+                                                            <span className="block">{datetime.date}</span>
+                                                            <span className="block">{datetime.time}</span>
+                                                        </span>
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <span className={`px-2 py-0.5 text-[11px] font-bold border rounded-md ${getBadgeStyle(v.type)}`}>
@@ -1614,6 +1629,7 @@
                                     </div>
                                     {processedVideos.map((v, i) => {
                                         const status = v.status || 'unwatched';
+                                        const datetime = formatDateParts(v.datetime);
                                         const statusIcon = status === 'watched' ? '🟢' : status === 'watching' ? '🟡' : '⚪️';
                                         const statusTip = status === 'watched' ? 'Watched — tap to mark unwatched' : status === 'watching' ? 'Watching — tap to mark watched' : 'Unwatched — tap to mark watching';
                                         const statusIconStyle = status === 'watched'
@@ -1626,7 +1642,10 @@
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0 flex-1 flex items-center gap-2">
                                                         <span className={`px-2 py-0.5 text-[10px] font-bold border rounded-md flex-shrink-0 ${getBadgeStyle(v.type)}`}>{v.type}</span>
-                                                        <span className="text-[11px] font-mono opacity-60 truncate">{formatDate(v.datetime)}</span>
+                                                        <span className="text-[11px] font-mono opacity-60 leading-tight flex-shrink-0">
+                                                            <span className="block">{datetime.date}</span>
+                                                            <span className="block">{datetime.time}</span>
+                                                        </span>
                                                     </div>
                                                     <div className="flex items-center gap-0.5 flex-shrink-0">
                                                         <button
