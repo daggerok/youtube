@@ -917,6 +917,9 @@
         };
 
         const openNoteEditor = (video) => {
+            // A double-click inside the already open editor bubbles up to its Name cell;
+            // keep the in-progress draft instead of resetting it to the saved note.
+            if (editNoteUrl === video.url) return;
             setEditNoteUrl(video.url);
             setEditNoteText(video.note || '');
         };
@@ -1638,8 +1641,13 @@
                                                             {v.type}
                                                         </span>
                                                     </td>
-                                                    {/* Keep the note with its video title; the Note column is only the edit trigger. */}
-                                                    <td className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl align-top`} style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+                                                    {/* Keep the note with its video title. Double-click the Name cell to edit the note (the Note column pencil is the other trigger). */}
+                                                    <td
+                                                        className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl align-top`}
+                                                        style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}
+                                                        onDoubleClick={() => openNoteEditor(v)}
+                                                        title={v.note && v.note.trim() ? 'Double-click to edit note' : 'Double-click to add note'}
+                                                    >
                                                         <div className="space-y-1">
                                                             <div className="truncate" title={v.name}>{v.name}</div>
                                                             {editNoteUrl === v.url ? (
