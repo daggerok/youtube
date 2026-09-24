@@ -1,5 +1,9 @@
 # youtube
 
+## Note editing
+
+Double-click a video's Name cell in the desktop table (or press the ✏️ button in the Note column) to edit its note inline. Enter saves, Shift+Enter adds a new line, Esc cancels, and clicking away saves. Changes sync to Google Sheets when connected.
+
 ## prerequisites
 
 ```bash
@@ -20,5 +24,5 @@ Spaces are literal, including spaces next to operators; they are not trimmed or 
 ### Tests
 
 ```bash
-node --test tests/filters.test.js
+node --test tests/*.test.js
 ```
