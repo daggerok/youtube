@@ -183,6 +183,27 @@
         textarea.style.height = `${textarea.scrollHeight}px`;
     };
 
+    // Preferred caret placement: when a note is double-clicked, map the click point to a
+    // character offset inside the note text so the caret lands where the user clicked.
+    // Returns null when the click was not on the note text (the caller then falls back).
+    const caretOffsetFromNotePoint = (event) => {
+        const noteEl = event && event.target && event.target.closest
+            ? event.target.closest('[data-note-text]')
+            : null;
+        if (!noteEl) return null;
+        let node = null;
+        let offset = null;
+        if (typeof document.caretPositionFromPoint === 'function') {
+            const pos = document.caretPositionFromPoint(event.clientX, event.clientY);
+            if (pos) { node = pos.offsetNode; offset = pos.offset; }
+        } else if (typeof document.caretRangeFromPoint === 'function') {
+            const range = document.caretRangeFromPoint(event.clientX, event.clientY);
+            if (range) { node = range.startContainer; offset = range.startOffset; }
+        }
+        if (node && node.nodeType === 3 && noteEl.contains(node)) return offset;
+        return null;
+    };
+
     // --- Google Sheets constants (adapted from google impl) ---
     const DEFAULT_SHEET_PREFIX = 'YT-';
     const VIDEO_HEADERS = ['datetime', 'type', 'name', 'url', 'status', 'note', 'created', 'updated'];
@@ -402,6 +423,11 @@
         const [editNoteUrl, setEditNoteUrl] = useState(null);
         const [editNoteText, setEditNoteText] = useState('');
         const cancelNoteBlurRef = useRef(false);
+        // Desired caret offset inside the note editor: a number for the clicked position, or
+        // null to fall back to the end of the note (or the beginning when it is empty).
+        const noteCaretRef = useRef(null);
+        // Places focus + caret exactly once when the editor opens, not on every keystroke.
+        const noteCaretAppliedRef = useRef(false);
 
         // Persistent Filters & Sort
         const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
@@ -916,12 +942,33 @@
             }
         };
 
-        const openNoteEditor = (video) => {
+        // Focus the freshly opened note editor and drop the caret where the user double-clicked.
+        // The inline ref re-attaches on every render, so place the caret only on the first mount.
+        const focusNoteEditor = (element) => {
+            if (!element) return;
+            fitNoteEditorToContent(element);
+            if (noteCaretAppliedRef.current) return;
+            noteCaretAppliedRef.current = true;
+            element.focus();
+            const desired = noteCaretRef.current;
+            const pos = desired == null
+                ? element.value.length
+                : Math.min(Math.max(desired, 0), element.value.length);
+            try { element.setSelectionRange(pos, pos); } catch (err) { /* selection unsupported */ }
+        };
+
+        const openNoteEditor = (video, event) => {
             // A double-click inside the already open editor bubbles up to its Name cell;
             // keep the in-progress draft instead of resetting it to the saved note.
             if (editNoteUrl === video.url) return;
             setEditNoteUrl(video.url);
             setEditNoteText(video.note || '');
+            // Preferred: caret at the clicked position within the note text. Fallback (clicked
+            // elsewhere, pencil button, or an empty note): end of the note, else the beginning.
+            const clicked = event ? caretOffsetFromNotePoint(event) : null;
+            const noteLength = (video.note || '').length;
+            noteCaretRef.current = clicked != null ? clicked : noteLength;
+            noteCaretAppliedRef.current = false;
         };
 
         const cancelNoteEdit = () => {
@@ -1645,7 +1692,7 @@
                                                     <td
                                                         className={`px-4 font-medium ${t1} max-w-sm xl:max-w-xl align-top`}
                                                         style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}
-                                                        onDoubleClick={() => openNoteEditor(v)}
+                                                        onDoubleClick={event => openNoteEditor(v, event)}
                                                         title={v.note && v.note.trim() ? 'Double-click to edit note' : 'Double-click to add note'}
                                                     >
                                                         <div className="space-y-1">
@@ -1653,7 +1700,7 @@
                                                             {editNoteUrl === v.url ? (
                                                                 <textarea
                                                                     rows={1}
-                                                                    ref={element => fitNoteEditorToContent(element)}
+                                                                    ref={focusNoteEditor}
                                                                     autoFocus
                                                                     value={editNoteText}
                                                                     onChange={e => setEditNoteText(e.target.value)}
@@ -1666,7 +1713,7 @@
                                                                     placeholder="Write a note…"
                                                                 />
                                                             ) : (v.note && v.note.trim()) ? (
-                                                                <p
+                                                                <p data-note-text="true"
                                                                     className={`block w-full m-0 p-0 font-normal leading-snug whitespace-pre-wrap break-words ${noteText}`}
                                                                     style={{ fontSize: noteFs }}
                                                                 >
@@ -1758,7 +1805,7 @@
                                                 {editNoteUrl === v.url ? (
                                                     <textarea
                                                         rows={1}
-                                                        ref={element => fitNoteEditorToContent(element)}
+                                                        ref={focusNoteEditor}
                                                         autoFocus
                                                         value={editNoteText}
                                                         onChange={e => setEditNoteText(e.target.value)}
@@ -1771,7 +1818,7 @@
                                                         placeholder="Write a note…"
                                                     />
                                                 ) : (v.note && v.note.trim()) ? (
-                                                    <p
+                                                    <p data-note-text="true"
                                                         className={`block w-full m-0 p-0 font-normal leading-snug whitespace-pre-wrap break-words ${noteText}`}
                                                         style={{ fontSize: noteFs }}
                                                     >

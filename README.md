@@ -2,7 +2,7 @@
 
 ## Note editing
 
-Double-click a video's Name cell in the desktop table (or press the ✏️ button in the Note column) to edit its note inline. Enter saves, Shift+Enter adds a new line, Esc cancels, and clicking away saves. Changes sync to Google Sheets when connected.
+Double-click a video's Name cell in the desktop table (or press the ✏️ button in the Note column) to edit its note inline. Double-clicking the note text drops the caret exactly where you clicked; opening from the ✏️ button (or when the note is empty) puts the caret at the end (the start when there is no text). Enter saves, Shift+Enter adds a new line, Esc cancels, and clicking away saves. Changes sync to Google Sheets when connected.
 
 ## prerequisites
 
