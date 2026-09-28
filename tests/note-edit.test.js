@@ -28,9 +28,13 @@ test('openNoteEditor remembers the clicked caret, else falls back to the note le
     const build = (editNoteUrl, noteCaretRef, noteCaretAppliedRef, caretFn) => {
         const seen = {};
         const open = new Function(
-            'editNoteUrl', 'setEditNoteUrl', 'setEditNoteText', 'caretOffsetFromNotePoint', 'noteCaretRef', 'noteCaretAppliedRef',
+            'editNoteUrl', 'setEditNoteUrl', 'setEditNoteText', 'caretOffsetFromNotePoint', 'noteCaretRef', 'noteCaretAppliedRef', 'noteViewRef', 'window',
             `${openNoteEditor}\nreturn openNoteEditor;`,
-        )(editNoteUrl, u => { seen.url = u; }, t => { seen.text = t; }, caretFn, noteCaretRef, noteCaretAppliedRef);
+        )(
+            editNoteUrl, u => { seen.url = u; }, t => { seen.text = t; }, caretFn,
+            noteCaretRef, noteCaretAppliedRef, seen,
+            { scrollX: 4, scrollY: 2048 },
+        );
         return { open, seen };
     };
 
@@ -43,6 +47,8 @@ test('openNoteEditor remembers the clicked caret, else falls back to the note le
     assert.equal(seen.text, 'hello world');
     assert.equal(ref.current, 7, 'caret should be the clicked offset');
     assert.equal(applied.current, false, 'opening must re-arm the one-time caret placement');
+    assert.deepEqual(seen.current, { x: 4, y: 2048 },
+        'opening must snapshot the viewport before the editor mounts');
 
     // Clicked elsewhere / pencil button / no caret resolved -> end of the note (option 2).
     ref = { current: null };
@@ -60,9 +66,12 @@ test('openNoteEditor remembers the clicked caret, else falls back to the note le
 test('openNoteEditor keeps the in-progress draft when the same row is re-opened', () => {
     const openNoteEditor = source.match(/const openNoteEditor = \(video, event\) => \{[\s\S]*?\n        \};/)[0];
     const build = (editNoteUrl) => new Function(
-        'editNoteUrl', 'setEditNoteUrl', 'setEditNoteText', 'caretOffsetFromNotePoint', 'noteCaretRef', 'noteCaretAppliedRef',
+        'editNoteUrl', 'setEditNoteUrl', 'setEditNoteText', 'caretOffsetFromNotePoint', 'noteCaretRef', 'noteCaretAppliedRef', 'noteViewRef', 'window',
         `${openNoteEditor}\nreturn openNoteEditor;`,
-    )(editNoteUrl, () => { throw new Error('must not re-open'); }, () => { throw new Error('must not reset'); }, () => 0, { current: 0 }, { current: false });
+    )(
+        editNoteUrl, () => { throw new Error('must not re-open'); }, () => { throw new Error('must not reset'); }, () => 0,
+        { current: 0 }, { current: false }, { current: null }, { scrollX: 0, scrollY: 0 },
+    );
     assert.doesNotThrow(() => build('same').call(null, { url: 'same', note: 'draft' }, {}));
 });
 
@@ -102,35 +111,118 @@ test('the note editor is marked so the caret helper only trusts clicks on the no
 
 test('focusNoteEditor focuses once and drops the caret at the requested offset', () => {
     const focusSrc = source.match(/const focusNoteEditor = \(element\) => \{[\s\S]*?\n        \};/)[0];
-    const build = (noteCaretRef, noteCaretAppliedRef, fit = () => {}) => new Function(
-        'fitNoteEditorToContent', 'noteCaretRef', 'noteCaretAppliedRef',
+    // `noteViewRef` + `window` are injected so the extracted helper can freeze the viewport in Node.
+    const build = (noteCaretRef, noteCaretAppliedRef, fit = () => {}, win, noteViewRef) => new Function(
+        'fitNoteEditorToContent', 'noteCaretRef', 'noteCaretAppliedRef', 'noteViewRef', 'window',
         `${focusSrc}\nreturn focusNoteEditor;`,
-    )(fit, noteCaretRef, noteCaretAppliedRef);
+    )(
+        fit, noteCaretRef, noteCaretAppliedRef,
+        noteViewRef || { current: null },
+        win || { scrollX: 0, scrollY: 0, scrollTo() { throw new Error('viewport must not move'); } },
+    );
     const makeEl = value => {
         const calls = [];
-        return { value, calls, focus() { calls.push('focus'); }, setSelectionRange(a, b) { calls.push(['setSelectionRange', a, b]); } };
+        return {
+            value,
+            calls,
+            focus(opts) { calls.push(opts && opts.preventScroll ? 'focus(preventScroll)' : 'focus'); },
+            setSelectionRange(a, b) { calls.push(['setSelectionRange', a, b]); },
+        };
     };
 
-    // First mount: focus + place the caret at the stored offset.
+    // First mount: focus without scrolling + place the caret at the stored offset.
     const applied = { current: false };
     const el = makeEl('hello world');
     build({ current: 4 }, applied)(el);
-    assert.deepEqual(el.calls, ['focus', ['setSelectionRange', 4, 4]]);
+    assert.deepEqual(el.calls, ['focus(preventScroll)', ['setSelectionRange', 4, 4]]);
     assert.equal(applied.current, true);
 
     // Re-render (typing): the guard stops the caret from being reset.
     build({ current: 4 }, applied)(el);
-    assert.deepEqual(el.calls, ['focus', ['setSelectionRange', 4, 4]], 'the caret must not move on re-render');
+    assert.deepEqual(el.calls, ['focus(preventScroll)', ['setSelectionRange', 4, 4]], 'the caret must not move on re-render');
 
     // A missing element (unmount) is a no-op.
     assert.doesNotThrow(() => build({ current: 0 }, { current: false })(null));
 
     // The offset is clamped into range, and null means "end of the text".
-    assert.deepEqual(makeEl('hello') && (() => { const e = makeEl('hello'); build({ current: 999 }, { current: false })(e); return e.calls; })(),
-        ['focus', ['setSelectionRange', 5, 5]], 'an out-of-range offset clamps to the end');
+    assert.deepEqual((() => { const e = makeEl('hello'); build({ current: 999 }, { current: false })(e); return e.calls; })(),
+        ['focus(preventScroll)', ['setSelectionRange', 5, 5]], 'an out-of-range offset clamps to the end');
     const endEl = makeEl('abc');
     build({ current: null }, { current: false })(endEl);
-    assert.deepEqual(endEl.calls, ['focus', ['setSelectionRange', 3, 3]], 'null offset means the end of the text');
+    assert.deepEqual(endEl.calls, ['focus(preventScroll)', ['setSelectionRange', 3, 3]], 'null offset means the end of the text');
+});
+
+test('the note editors focus through the shared ref with preventScroll, not autoFocus', () => {
+    // autoFocus made React focus the textarea before it was fitted to its content, which
+    // scrolled notes taller than the window up to their first line on double-click.
+    const autoFocusAttrs = source.match(/<textarea[^>]*\bautoFocus\b/g) || [];
+    assert.equal(autoFocusAttrs.length, 0, 'no note editor may carry autoFocus');
+    assert.match(source, /element\.focus\(\{ preventScroll: true \}\)/,
+        'the shared ref must focus with preventScroll so opening never scrolls');
+});
+
+test('the hidden viewport copy of the editor never takes focus or arms the caret', () => {
+    const focusSrc = source.match(/const focusNoteEditor = \(element\) => \{[\s\S]*?\n        \};/)[0];
+    const build = (noteCaretRef, noteCaretAppliedRef) => new Function(
+        'fitNoteEditorToContent', 'noteCaretRef', 'noteCaretAppliedRef', 'noteViewRef', 'window',
+        `${focusSrc}\nreturn focusNoteEditor;`,
+    )(
+        () => {}, noteCaretRef, noteCaretAppliedRef,
+        { current: null },
+        { scrollX: 0, scrollY: 0, scrollTo() { throw new Error('viewport must not move'); } },
+    );
+    const makeEl = (value, offsetParent) => {
+        const calls = [];
+        return {
+            value,
+            offsetParent,
+            calls,
+            focus(opts) { calls.push(opts && opts.preventScroll ? 'focus(preventScroll)' : 'focus'); },
+            setSelectionRange(a, b) { calls.push(['setSelectionRange', a, b]); },
+        };
+    };
+
+    // Desktop visible / mobile hidden (or the other way around below 1440px): the
+    // display:none copy bails before focus, so the visible copy still gets both.
+    const applied = { current: false };
+    const hidden = makeEl('hello world', null);
+    build({ current: 4 }, applied)(hidden);
+    assert.deepEqual(hidden.calls, [], 'the hidden copy must not focus or place the caret');
+    assert.equal(applied.current, false, 'the hidden copy must not arm the one-time caret placement');
+
+    const visible = makeEl('hello world', {});
+    build({ current: 4 }, applied)(visible);
+    assert.deepEqual(visible.calls, ['focus(preventScroll)', ['setSelectionRange', 4, 4]],
+        'the visible copy still focuses and places the caret afterwards');
+});
+
+test('focusNoteEditor snaps the viewport back if focusing or the caret still scrolled', () => {
+    const focusSrc = source.match(/const focusNoteEditor = \(element\) => \{[\s\S]*?\n        \};/)[0];
+    const win = {
+        scrollX: 0,
+        scrollY: 1396,
+        scrollTo(x, y) { this.scrollX = x; this.scrollY = y; this.restored = [x, y]; },
+    };
+    const focusNoteEditor = new Function(
+        'fitNoteEditorToContent', 'noteCaretRef', 'noteCaretAppliedRef', 'noteViewRef', 'window',
+        `${focusSrc}\nreturn focusNoteEditor;`,
+    )(
+        () => {}, { current: 0 }, { current: false },
+        { current: { x: 0, y: 2048 } }, // snapshot taken in openNoteEditor, before the swap
+        win,
+    );
+
+    // Mounting/focusing moved the page (transient scroll clamp, a browser ignoring
+    // preventScroll, …); the helper must restore the exact pre-open scroll position.
+    const el = {
+        value: 'a very long note',
+        offsetParent: {},
+        focus() { /* the page already moved before this call */ },
+        setSelectionRange() {},
+    };
+    focusNoteEditor(el);
+    assert.deepEqual(win.restored, [0, 2048], 'the viewport must return to where the user was');
+    assert.equal(win.scrollY, 2048);
 });
 
 test('both note editors use the shared focus + caret ref', () => {

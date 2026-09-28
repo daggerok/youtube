@@ -428,6 +428,9 @@
         const noteCaretRef = useRef(null);
         // Places focus + caret exactly once when the editor opens, not on every keystroke.
         const noteCaretAppliedRef = useRef(false);
+        // Viewport snapshot taken the moment the editor opens: mounting the textarea can
+        // transiently shrink the page and clamp the scroll, so we restore this exact spot.
+        const noteViewRef = useRef(null);
 
         // Persistent Filters & Sort
         const [sortConfig, setSortConfig] = useState(prefs.sortConfig || { key: 'datetime', direction: 'desc' });
@@ -944,23 +947,44 @@
 
         // Focus the freshly opened note editor and drop the caret where the user double-clicked.
         // The inline ref re-attaches on every render, so place the caret only on the first mount.
+        // Opening must never scroll the page: swapping the paragraph for the textarea can
+        // transiently shrink the document and clamp the scroll, and a plain focus() would
+        // additionally reveal-scroll a textarea that starts above the fold.
         const focusNoteEditor = (element) => {
             if (!element) return;
             fitNoteEditorToContent(element);
+            // The desktop and mobile copies of the editor both mount; the hidden one must not
+            // take focus or arm the caret, or the visible copy would never get them.
+            if (element.offsetParent === null) return;
             if (noteCaretAppliedRef.current) return;
             noteCaretAppliedRef.current = true;
-            element.focus();
+            try {
+                element.focus({ preventScroll: true });
+            } catch (err) {
+                element.focus(); // browsers rejecting the options bag fall back to a plain focus
+            }
             const desired = noteCaretRef.current;
             const pos = desired == null
                 ? element.value.length
                 : Math.min(Math.max(desired, 0), element.value.length);
             try { element.setSelectionRange(pos, pos); } catch (err) { /* selection unsupported */ }
+            // Belt and braces: mounting, focusing, or the caret may still have moved the
+            // page (browsers without preventScroll, transient scroll clamping); snap the
+            // viewport back to the exact spot the user double-clicked in.
+            const view = noteViewRef.current;
+            if (view && (window.scrollX !== view.x || window.scrollY !== view.y)) {
+                window.scrollTo(view.x, view.y);
+            }
         };
 
         const openNoteEditor = (video, event) => {
             // A double-click inside the already open editor bubbles up to its Name cell;
             // keep the in-progress draft instead of resetting it to the saved note.
             if (editNoteUrl === video.url) return;
+            // Freeze the viewport where the user is looking right now. This runs in the
+            // double-click handler — before React swaps the paragraph for the textarea,
+            // which can transiently collapse the row and clamp the scroll position.
+            noteViewRef.current = { x: window.scrollX, y: window.scrollY };
             setEditNoteUrl(video.url);
             setEditNoteText(video.note || '');
             // Preferred: caret at the clicked position within the note text. Fallback (clicked
@@ -1701,7 +1725,6 @@
                                                                 <textarea
                                                                     rows={1}
                                                                     ref={focusNoteEditor}
-                                                                    autoFocus
                                                                     value={editNoteText}
                                                                     onChange={e => setEditNoteText(e.target.value)}
                                                                     onInput={e => fitNoteEditorToContent(e.currentTarget)}
@@ -1806,7 +1829,6 @@
                                                     <textarea
                                                         rows={1}
                                                         ref={focusNoteEditor}
-                                                        autoFocus
                                                         value={editNoteText}
                                                         onChange={e => setEditNoteText(e.target.value)}
                                                         onInput={e => fitNoteEditorToContent(e.currentTarget)}
