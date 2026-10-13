@@ -1592,7 +1592,7 @@
                 </div>
 
                 {/* Main Workspace Area */}
-                <div className="flex-1 px-4 py-1">
+                <div className="flex-1 px-4 pt-1 pb-4">
                     {/* Settings Panel — EXACT same width + style as the inventory table, animated collapse */}
                     <div className={`settings-wrap ${showSettings ? 'open mb-2' : ''}`}>
                         <div className={`${card} border rounded-xl overflow-hidden shadow-lg text-sm`}>
@@ -1872,7 +1872,7 @@
                         </div>
                     )}
                 </div>
-                <footer className={`px-4 pt-1 pb-3 text-center text-[10px] leading-tight ${mt}`}>
+                <footer className={`px-4 pb-4 flex justify-center text-[10px] leading-none ${mt}`}>
                     <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className={`transition-colors ${dark ? 'hover:text-slate-200' : 'hover:text-slate-600'}`}>
                         daggerok &copy; {new Date().getFullYear()}
                     </a>
