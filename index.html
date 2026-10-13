@@ -398,6 +398,8 @@
     };
 
     // --- App ---
+    const REPO_URL = 'https://github.com/daggerok/youtube';
+
     const App = () => {
         const prefs = useMemo(() => lp(), []);
         const gsCfg = useMemo(() => getGsConfig(), []);
@@ -1461,7 +1463,7 @@
         };
 
         return (
-            <React.Fragment>
+            <div className="flex min-h-screen flex-col">
                 {/* Navbar */}
                 <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md`}>
                     <div className="px-4">
@@ -1590,7 +1592,7 @@
                 </div>
 
                 {/* Main Workspace Area */}
-                <div className="px-4 py-1">
+                <div className="flex-1 px-4 py-1">
                     {/* Settings Panel — EXACT same width + style as the inventory table, animated collapse */}
                     <div className={`settings-wrap ${showSettings ? 'open mb-2' : ''}`}>
                         <div className={`${card} border rounded-xl overflow-hidden shadow-lg text-sm`}>
@@ -1870,7 +1872,12 @@
                         </div>
                     )}
                 </div>
-            </React.Fragment>
+                <footer className={`px-4 pt-1 pb-3 text-center text-[10px] leading-tight ${mt}`}>
+                    <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className={`transition-colors ${dark ? 'hover:text-slate-200' : 'hover:text-slate-600'}`}>
+                        daggerok &copy; {new Date().getFullYear()}
+                    </a>
+                </footer>
+            </div>
         );
     };
 
