@@ -137,6 +137,24 @@
 
     const FILTER_HELP = 'Case-insensitive literal phrases; spaces are literal. Use * or & for AND in order, | for OR. AND is evaluated before OR.';
 </script>
+
+<script id="url-utils">
+    // Sheet rows are untrusted: a javascript: URL in the url column would run on this
+    // origin (which keeps the API key in localStorage) once rendered as a link.
+    const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be']);
+
+    function isYoutubeUrl(value) {
+        if (typeof value !== 'string' || value === '') return false;
+        let parsed;
+        try { parsed = new URL(value); } catch { return false; }
+        return parsed.protocol === 'https:' && YOUTUBE_HOSTS.has(parsed.hostname);
+    }
+
+    // href for a video link, or undefined so React renders an inert anchor.
+    function youtubeHref(value) {
+        return isYoutubeUrl(value) ? value : undefined;
+    }
+</script>
 <script type="text/babel" data-presets="react">
     const React = window.React || {};
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -350,7 +368,7 @@
                     created,
                     updated
                 };
-            }).filter(v => v.url);
+            }).filter(v => isYoutubeUrl(v.url));
         } catch (e) {
             dbg('readVideosFromSheet error', e);
             throw e;
@@ -1748,7 +1766,7 @@
                                                         </div>
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <a href={v.url} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
+                                                        <a href={youtubeHref(v.url)} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
                                                             Open ↗
                                                         </a>
                                                     </td>
@@ -1813,7 +1831,7 @@
                                                             {statusIcon}
                                                         </button>
                                                         <a
-                                                            href={v.url}
+                                                            href={youtubeHref(v.url)}
                                                             target="_blank"
                                                             rel="noreferrer"
                                                             title="Watch"
