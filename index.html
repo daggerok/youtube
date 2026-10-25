@@ -405,28 +405,59 @@
         }
     };
 
+    const videoSheetRow = (v, nowIso) => ([
+        v.datetime || '',
+        v.type || 'Video',
+        v.name || '',
+        v.url || '',
+        v.status || 'unwatched',
+        v.note || '',
+        v.created || nowIso,
+        v.updated || v.created || nowIso
+    ]);
+
+    // Full list write without a blank window: overwrite rows 2..n+1 in one PUT, then clear
+    // only the rows past the new end. A failed PUT leaves the sheet as it was (the old
+    // clear-then-PUT left it empty), and a failed tail clear only leaves stale extra rows.
     const writeVideosToSheet = async (tok, sid, tab, videos) => {
         const id = nid(sid);
         const t = tab.trim();
         if (!id) throw new Error('No spreadsheet ID');
         const nowIso = new Date().toISOString();
-        const clean = (videos || []).map(v => ([
-            v.datetime || '',
-            v.type || 'Video',
-            v.name || '',
-            v.url || '',
-            v.status || 'unwatched',
-            v.note || '',
-            v.created || nowIso,
-            v.updated || v.created || nowIso
-        ]));
-        // clear data rows
-        await sa(`/spreadsheets/${id}/values/${encodeURIComponent(sr(t, 'A2:H'))}:clear`, tok, { method: 'POST', body: '{}' });
-        if (!clean.length) return;
-        const pr = sr(t, 'A2:H');
-        await sa(`/spreadsheets/${id}/values/${encodeURIComponent(pr)}?valueInputOption=RAW`, tok, {
+        const clean = (videos || []).map(v => videoSheetRow(v, nowIso));
+        if (clean.length) {
+            const pr = sr(t, `A2:H${clean.length + 1}`);
+            await sa(`/spreadsheets/${id}/values/${encodeURIComponent(pr)}?valueInputOption=RAW`, tok, {
+                method: 'PUT',
+                body: JSON.stringify({ range: pr, majorDimension: 'ROWS', values: clean })
+            });
+        }
+        const tail = sr(t, `A${clean.length + 2}:H`);
+        await sa(`/spreadsheets/${id}/values/${encodeURIComponent(tail)}:clear`, tok, { method: 'POST', body: '{}' });
+    };
+
+    // Single video change (status, note): rewrite only the row holding its url, found by
+    // reading the url column, or append it when the sheet does not have it yet.
+    // Other rows, including edits made meanwhile on another device, are left untouched.
+    const writeVideoRowToSheet = async (tok, sid, tab, video) => {
+        const id = nid(sid);
+        const t = tab.trim();
+        if (!id) throw new Error('No spreadsheet ID');
+        const row = videoSheetRow(video, new Date().toISOString());
+        const r = await sa(`/spreadsheets/${id}/values/${encodeURIComponent(sr(t, 'D2:D'))}`, tok);
+        const index = (r?.values || []).findIndex(cells => (cells && cells[0]) === video.url);
+        if (index === -1) {
+            const ar = sr(t, 'A1:H1');
+            await sa(`/spreadsheets/${id}/values/${encodeURIComponent(ar)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, tok, {
+                method: 'POST',
+                body: JSON.stringify({ range: ar, majorDimension: 'ROWS', values: [row] })
+            });
+            return;
+        }
+        const rr = sr(t, `A${index + 2}:H${index + 2}`);
+        await sa(`/spreadsheets/${id}/values/${encodeURIComponent(rr)}?valueInputOption=RAW`, tok, {
             method: 'PUT',
-            body: JSON.stringify({ range: pr, majorDimension: 'ROWS', values: clean })
+            body: JSON.stringify({ range: rr, majorDimension: 'ROWS', values: [row] })
         });
     };
 
@@ -675,7 +706,9 @@
         }, [isGoogleAuthed, gsConfig.spreadsheetId]);
 
         // --- Google Sheets sync functions for videos ---
-        const syncToGoogle = useCallback(async (videosToSave, handleForTab) => {
+        // changedVideo set: only that video's row is written (status or note edit);
+        // otherwise the whole list is written in place.
+        const syncToGoogle = useCallback(async (videosToSave, handleForTab, changedVideo = null) => {
             const sid = nid(gsConfig.spreadsheetId);
             const canUseGoogle = !googleSessionDisabledRef.current &&
                 Boolean(gsConfig.clientId && sid && (gTokRef.current || gsConfig.lastAccountEmail));
@@ -686,9 +719,15 @@
                 const tab = getChannelTab(handleForTab, currentChannelId);
                 await runWithGoogleAuth(async token => {
                     await ensureVideoTab(token, sid, tab);
-                    await writeVideosToSheet(token, sid, tab, videosToSave);
+                    if (changedVideo) await writeVideoRowToSheet(token, sid, tab, changedVideo);
+                    else await writeVideosToSheet(token, sid, tab, videosToSave);
                 });
 
+                if (changedVideo) {
+                    log(`☁️ Synced 1 video row → tab: ${tab}`);
+                    log(`      ${changedVideo.url}`);
+                    return true;
+                }
                 log(`☁️ Synced ${videosToSave.length} videos → tab: ${tab}`);
 
                 // === RICH VIDEO DETAILS IN DEBUG ===
@@ -991,7 +1030,7 @@
             setEditNoteText('');
             // Sync to GS
             if (isGoogleReady) {
-                syncToGoogle(next, currentHandle);
+                syncToGoogle(next, currentHandle, next.find(v => v.url === url));
             }
         };
 
@@ -1090,7 +1129,7 @@
             setCache(currentChannelId, nextVideos);
             // Sync immediately to Google Sheets
             if (isGoogleReady) {
-                syncToGoogle(nextVideos, currentHandle);
+                syncToGoogle(nextVideos, currentHandle, nextVideos.find(v => v.url === url));
             }
         };
 
