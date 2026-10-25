@@ -155,6 +155,36 @@
         return isYoutubeUrl(value) ? value : undefined;
     }
 </script>
+
+<script id="csv-utils">
+    const VIDEO_CSV_HEADERS = ['Datetime', 'Date', 'Time', 'Type', 'Status', 'Name', 'URL', 'Note'];
+
+    // Every field is quoted and inner quotes doubled, so commas, quotes and newlines stay in one cell.
+    function csvField(value) {
+        return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    }
+
+    // [iso, date, time] for a parseable datetime, else three empty cells:
+    // toISOString() throws on an Invalid Date (blank or garbled sheet value).
+    function csvDateParts(value) {
+        const d = value ? new Date(value) : null;
+        if (!d || Number.isNaN(d.getTime())) return ['', '', ''];
+        const iso = d.toISOString();
+        const [date, time] = iso.split('T');
+        return [iso, date, time.replace('Z', '')];
+    }
+
+    function videoCsvRow(v) {
+        return [
+            ...csvDateParts(v.datetime),
+            v.type,
+            v.status || 'unwatched',
+            v.name,
+            v.url,
+            v.note,
+        ].map(csvField).join(',');
+    }
+</script>
 <script type="text/babel" data-presets="react">
     const React = window.React || {};
     const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -1068,17 +1098,7 @@
         const handleExportCSV = () => {
             if (!processedVideos || processedVideos.length === 0) return;
 
-            const headers = ['Datetime', 'Date', 'Time', 'Type', 'Status', 'Name', 'URL', 'Note'];
-            const rows = processedVideos.map(v => {
-                const safeName = v.name.replace(/\"/g, '""');
-                const d = new Date(v.datetime);
-                const isoStr = d.toISOString();
-                const dateStr = isoStr.split('T')[0];
-                const timeStr = isoStr.split('T')[1].replace('Z', '');
-                return `"${isoStr}","${dateStr}","${timeStr}","${v.type}","${v.status || 'unwatched'}","${safeName}","${v.url}","${(v.note || '').replace(/\"/g, '""')}"`;
-            });
-
-            const csvContent = [headers.join(','), ...rows].join('\n');
+            const csvContent = [VIDEO_CSV_HEADERS.join(','), ...processedVideos.map(videoCsvRow)].join('\n');
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
