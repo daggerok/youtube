@@ -25,7 +25,7 @@ test('https youtube watch and short urls are kept', () => {
     }
 });
 
-test('script, other schemes and lookalike hosts are dropped', () => {
+test('script, other schemes and lookalike hosts are never linked', () => {
     for (const url of [
         'javascript:alert(1)',
         'JaVaScRiPt:alert(1)',
@@ -47,8 +47,23 @@ test('script, other schemes and lookalike hosts are dropped', () => {
     }
 });
 
-test('sheet rows and both video links go through the allowlist', () => {
-    assert.match(app, /\}\)\.filter\(v => isYoutubeUrl\(v\.url\)\);/);
+test('sheet rows are kept and only allowlisted urls become links', () => {
+    // Rows are no longer filtered by the allowlist, only blank urls are dropped.
+    assert.match(app, /\}\)\.filter\(v => v\.url\);/);
+    assert.doesNotMatch(app, /filter\(v => isYoutubeUrl\(v\.url\)\)/);
+    // No raw url ever reaches an href; both video links use the allowlist.
     assert.doesNotMatch(app, /href=\{v\.url\}/);
+    assert.equal(app.match(/href=\{[^}]*v\.url[^}]*\}/g).length, 2);
     assert.equal(app.match(/href=\{youtubeHref\(v\.url\)\}/g).length, 2);
+    // Each link is rendered only when the allowlist passes, otherwise the url is plain text.
+    assert.equal(app.match(/\{youtubeHref\(v\.url\) \? \(\s*<a\b/g).length, 2);
+    assert.match(app, /\) : \(\s*<span data-unlinked-url="true"[^>]*>\s*\{v\.url\}\s*<\/span>/);
+    assert.match(app, /\{!youtubeHref\(v\.url\) && \(\s*<p data-unlinked-url="true"[^>]*>\{v\.url\}<\/p>/);
+});
+
+test('http, other hosts and script urls get no href', () => {
+    for (const url of ['http://www.youtube.com/watch?v=hand', 'https://vimeo.com/123', 'javascript:alert(1)']) {
+        assert.equal(youtubeHref(url), undefined, url);
+    }
+    assert.equal(youtubeHref('https://www.youtube.com/watch?v=a'), 'https://www.youtube.com/watch?v=a');
 });

@@ -21,8 +21,8 @@ const load = (respond = () => ({})) => {
         calls.push(call);
         return respond(call);
     };
-    const src = ['nid', 'qt', 'sr', 'videoSheetRow', 'writeVideosToSheet', 'writeVideoRowToSheet'].map(pick).join('\n');
-    const api = new Function('sa', `${src}\nreturn { writeVideosToSheet, writeVideoRowToSheet };`)(sa);
+    const src = ['nid', 'qt', 'sr', 'videoSheetRow', 'readVideosFromSheet', 'writeVideosToSheet', 'writeVideoRowToSheet'].map(pick).join('\n');
+    const api = new Function('sa', 'dbg', `${src}\nreturn { readVideosFromSheet, writeVideosToSheet, writeVideoRowToSheet };`)(sa, () => {});
     return { ...api, calls };
 };
 
@@ -99,4 +99,44 @@ test('status and note edits sync one row, list syncs keep the full write', () =>
     assert.match(app, /syncToGoogle\(nextVideos, currentHandle, nextVideos\.find\(v => v\.url === url\)\)/);
     assert.match(app, /if \(changedVideo\) await writeVideoRowToSheet\(token, sid, tab, changedVideo\);\s*else await writeVideosToSheet\(token, sid, tab, videosToSave\);/);
     assert.doesNotMatch(app, /A2:H'\)\)\}:clear`[\s\S]*?A2:H'\);/);
+});
+
+// Sheet rows as the Sheets API returns them: A..H = datetime, type, name, url, status, note, created, updated.
+const sheetRow = (url, name) => ['2024-01-01T00:00:00Z', 'Video', name, url, 'watched', `note ${name}`, '2024-01-02T00:00:00Z', '2024-01-03T00:00:00Z'];
+const unlinkedRows = [
+    sheetRow('http://www.youtube.com/watch?v=hand', 'http'),
+    sheetRow('https://vimeo.com/123', 'other host'),
+    sheetRow('javascript:alert(1)', 'script'),
+];
+
+test('rows with http, other host or script urls are kept on read, only blank urls are dropped', async () => {
+    const { readVideosFromSheet } = load(() => ({
+        values: [sheetRow('https://www.youtube.com/watch?v=a', 'yt'), ...unlinkedRows, sheetRow('', 'blank')],
+    }));
+    const videos = await readVideosFromSheet('tok', 'sid', 'YT_chan');
+    assert.deepEqual(videos.map(v => v.url), [
+        'https://www.youtube.com/watch?v=a',
+        'http://www.youtube.com/watch?v=hand',
+        'https://vimeo.com/123',
+        'javascript:alert(1)',
+    ]);
+});
+
+test('a full sync writes unlinked rows back unchanged', async () => {
+    const rows = [sheetRow('https://www.youtube.com/watch?v=a', 'yt'), ...unlinkedRows];
+    const { readVideosFromSheet, writeVideosToSheet, calls } = load(c => (c.method === 'GET' ? { values: rows } : {}));
+    const videos = await readVideosFromSheet('tok', 'sid', 'YT_chan');
+    await writeVideosToSheet('tok', 'sid', 'YT_chan', videos);
+    const put = calls.find(c => c.method === 'PUT');
+    assert.equal(put.path, '/spreadsheets/sid/values/YT_chan!A2:H5?valueInputOption=RAW');
+    assert.deepEqual(put.body.values, rows);
+    assert.equal(calls.at(-1).path, '/spreadsheets/sid/values/YT_chan!A6:H:clear');
+});
+
+test('a status edit on an unlinked row rewrites that row by its url', async () => {
+    const http = 'http://www.youtube.com/watch?v=hand';
+    const { writeVideoRowToSheet, calls } = load(c => (c.method === 'GET' ? { values: [[video('a').url], [http]] } : {}));
+    await writeVideoRowToSheet('tok', 'sid', 'YT_chan', video('x', { url: http, status: 'watched' }));
+    assert.equal(calls[1].path, '/spreadsheets/sid/values/YT_chan!A3:H3?valueInputOption=RAW');
+    assert.equal(calls[1].body.values[0][3], http);
 });

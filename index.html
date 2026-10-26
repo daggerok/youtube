@@ -141,6 +141,7 @@
 <script id="url-utils">
     // Sheet rows are untrusted: a javascript: URL in the url column would run on this
     // origin (which keeps the API key in localStorage) once rendered as a link.
+    // Rows with any other url are kept (list, cache, sheet) and shown as plain text.
     const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be']);
 
     function isYoutubeUrl(value) {
@@ -150,7 +151,7 @@
         return parsed.protocol === 'https:' && YOUTUBE_HOSTS.has(parsed.hostname);
     }
 
-    // href for a video link, or undefined so React renders an inert anchor.
+    // href for a video link, or undefined when the url must not be linked.
     function youtubeHref(value) {
         return isYoutubeUrl(value) ? value : undefined;
     }
@@ -385,6 +386,8 @@
             const r = await sa(`/spreadsheets/${id}/values/${encodeURIComponent(sr(t, 'A2:H'))}`, tok);
             const rows = r.values || [];
             const nowIso = new Date().toISOString();
+            // Keep every row with a url: a hand-added http:// or non-YouTube row stays in the
+            // list and survives the next full write; it is only rendered without a link.
             return rows.map(row => {
                 const created = row[6] ? row[6] : nowIso;
                 const updated = row[7] ? row[7] : created;
@@ -398,7 +401,7 @@
                     created,
                     updated
                 };
-            }).filter(v => isYoutubeUrl(v.url));
+            }).filter(v => v.url);
         } catch (e) {
             dbg('readVideosFromSheet error', e);
             throw e;
@@ -1825,9 +1828,15 @@
                                                         </div>
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap text-right" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
-                                                        <a href={youtubeHref(v.url)} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
-                                                            Open ↗
-                                                        </a>
+                                                        {youtubeHref(v.url) ? (
+                                                            <a href={youtubeHref(v.url)} target="_blank" rel="noreferrer" className="text-emerald-500 hover:text-emerald-400 font-bold transition-colors">
+                                                                Open ↗
+                                                            </a>
+                                                        ) : (
+                                                            <span data-unlinked-url="true" title={`Not linked (only https YouTube links open): ${v.url}`} className={`block max-w-[10rem] ml-auto truncate font-mono text-[11px] ${mt}`}>
+                                                                {v.url}
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td className="px-4 whitespace-nowrap" style={{ paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
                                                         <button
@@ -1889,21 +1898,28 @@
                                                         >
                                                             {statusIcon}
                                                         </button>
-                                                        <a
-                                                            href={youtubeHref(v.url)}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            title="Watch"
-                                                            data-tip="Watch"
-                                                            aria-label="Watch"
-                                                            className={`has-tip ${iconBtn} ${dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-600 hover:bg-emerald-100'}`}
-                                                        >
-                                                            ▶
-                                                        </a>
+                                                        {youtubeHref(v.url) ? (
+                                                            <a
+                                                                href={youtubeHref(v.url)}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                title="Watch"
+                                                                data-tip="Watch"
+                                                                aria-label="Watch"
+                                                                className={`has-tip ${iconBtn} ${dark ? 'text-emerald-400 hover:bg-emerald-500/20' : 'text-emerald-600 hover:bg-emerald-100'}`}
+                                                            >
+                                                                ▶
+                                                            </a>
+                                                        ) : (
+                                                            <span aria-hidden="true" className={`${iconBtn} opacity-30`}>▶</span>
+                                                        )}
                                                         {renderNoteActions(v)}
                                                     </div>
                                                 </div>
                                                 <h4 className={`font-semibold leading-snug ${t1}`} style={{ fontSize: tblFs }}>{v.name}</h4>
+                                                {!youtubeHref(v.url) && (
+                                                    <p data-unlinked-url="true" title="Not linked (only https YouTube links open)" className={`m-0 font-mono text-[11px] break-all ${mt}`}>{v.url}</p>
+                                                )}
                                                 {editNoteUrl === v.url ? (
                                                     <textarea
                                                         rows={1}
