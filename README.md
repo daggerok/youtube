@@ -10,6 +10,10 @@ Double-click a video's Name cell in the desktop table (or press the ✏️ butto
 jq -r '."Google YouTube Data API v3 API Key youtube"' google.json | pbcopy
 ```
 
+## Full Refresh
+
+Full Refresh rebuilds the list from the channel's videos and keeps every row that is not a channel video (hand-added https, http or non-YouTube links): the channel list comes first, then those rows in their old order with status and note unchanged, and the result is written back to the sheet. A row of a channel video, matched by video id (also in `youtu.be`, `shorts` or `live` form), keeps its status and note and is not duplicated; `http://` and non-YouTube rows are matched by exact url
+
 ## Column filters
 
 All desktop and mobile column filters use the same case-insensitive syntax:
