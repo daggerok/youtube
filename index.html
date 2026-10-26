@@ -157,6 +157,54 @@
     }
 </script>
 
+<script id="refresh-utils">
+    // Video id of an https YouTube url (watch, youtu.be, shorts, live, embed), else ''.
+    // Uses isYoutubeUrl from url-utils, so http:// and other hosts have no id.
+    function youtubeVideoId(value) {
+        if (!isYoutubeUrl(value)) return '';
+        const u = new URL(value);
+        if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('/')[0] || '';
+        if (u.pathname === '/watch') return u.searchParams.get('v') || '';
+        const m = u.pathname.match(/^\/(?:shorts|live|embed)\/([^/]+)/);
+        return m ? m[1] : '';
+    }
+
+    // Same video -> same key: by video id for a YouTube url, else by the exact url.
+    function videoRowKey(url) {
+        const id = youtubeVideoId(url);
+        return id ? `id:${id}` : `url:${url}`;
+    }
+
+    // Full Refresh list: the channel videos (in channel order) with status, note, created and
+    // updated taken from a previous row of the same video, then every previous row that is not
+    // a channel video (hand-added, http, other hosts) unchanged, in its old order.
+    // previousRows is cache then sheet: a later row wins per field (sheet is authoritative,
+    // including an explicit "unwatched" or a cleared note), the first one fixes the position.
+    function mergeFullRefresh(channelVideos, previousRows) {
+        const fields = new Map();
+        const kept = new Map();
+        for (const v of previousRows || []) {
+            if (!v || !v.url) continue;
+            const key = videoRowKey(v.url);
+            const f = fields.get(key) || {};
+            if (v.status) f.status = v.status;
+            if (Object.prototype.hasOwnProperty.call(v, 'note')) f.note = v.note || '';
+            if (v.created) f.created = v.created;
+            if (v.updated) f.updated = v.updated;
+            fields.set(key, f);
+            kept.set(key, v);
+        }
+        const channelKeys = new Set();
+        const channel = (channelVideos || []).map(v => {
+            const key = videoRowKey(v.url);
+            channelKeys.add(key);
+            return { ...v, ...(fields.get(key) || {}) };
+        });
+        const handAdded = [...kept].filter(([key]) => !channelKeys.has(key)).map(([, v]) => v);
+        return [...channel, ...handAdded];
+    }
+</script>
+
 <script id="csv-utils">
     const VIDEO_CSV_HEADERS = ['Datetime', 'Date', 'Time', 'Type', 'Status', 'Name', 'URL', 'Note'];
 
@@ -970,8 +1018,10 @@
                         log(`   ${sample.url}`);
                     }
                 } else {
-                    finalData = processedNew;
-                    log(`✅ Full Refresh complete. ${finalData.length} items.`);
+                    // Rows that are not channel videos (hand-added) stay after the channel list.
+                    finalData = mergeFullRefresh(processedNew, [...cachedData, ...(sheetData || [])]);
+                    const keptRows = finalData.length - processedNew.length;
+                    log(`✅ Full Refresh complete. ${finalData.length} items${keptRows ? ` (${keptRows} hand-added kept)` : ''}.`);
 
                     // Show a few sample videos in debug console
                     if (finalData.length > 0) {
