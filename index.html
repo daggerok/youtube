@@ -1793,12 +1793,12 @@
                         <div className="space-y-6 animate-fade-in">
                             <div className={`${card} border rounded-xl overflow-hidden shadow-lg`}>
                                 <div className={`px-4 py-3 bg-gradient-to-r ${dark ? 'from-slate-900/30 to-slate-900/10' : 'from-slate-50 to-slate-100/50'} flex items-center justify-between gap-4`}>
-                                    <div>
+                                    <div className="min-w-0 flex flex-wrap items-baseline gap-x-2">
                                         <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(16 * scale)}px` }}>
                                             {processedVideos.length} / {videos.length}
                                         </h3>
                                         {isGoogleReady && currentHandle && (
-                                            <div className="text-[10px] mt-0.5 text-emerald-400 flex items-center gap-1">
+                                            <div className="text-[10px] text-emerald-400">
                                                 ☁️ Synced to Google Sheets • tab: <span className="font-mono">{getChannelTab(currentHandle, currentChannelId)}</span>
                                             </div>
                                         )}
