@@ -1417,7 +1417,7 @@
         // Render headers inline instead of as a component created during every App render.
         // Recreating a nested component remounts its input and makes the caret lose focus.
         const renderTh = ({ label, columnKey, width }) => (
-            <th className={`px-4 align-top ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy }}>
+            <th className={`px-4 align-top sticky top-0 z-20 ${sB} ${width || ''}`} style={{ fontSize: tblHFs, paddingTop: tblCellPy, paddingBottom: tblCellPy, boxShadow: dark ? 'inset 0 -1px 0 rgba(51,65,85,.6)' : 'inset 0 -1px 0 #e2e8f0' }}>
                 <div className="flex flex-col gap-1.5">
                     <button
                         onClick={() => requestSort(columnKey)}
@@ -1593,7 +1593,7 @@
         };
 
         return (
-            <div className="flex min-h-screen flex-col">
+            <div className="h-dvh flex flex-col">
                 {/* Navbar */}
                 <div className={`sticky top-0 z-50 ${bg} backdrop-blur-md`}>
                     <div className="px-4">
@@ -1722,9 +1722,9 @@
                 </div>
 
                 {/* Main Workspace Area */}
-                <div className="flex-1 px-4 pt-1">
+                <div className={`flex-1 min-h-0 flex flex-col px-4 pt-1 overflow-y-auto ${scCls}`}>
                     {/* Settings Panel — EXACT same width + style as the inventory table, animated collapse */}
-                    <div className={`settings-wrap ${showSettings ? 'open mb-2' : ''}`}>
+                    <div className={`settings-wrap shrink-0 ${showSettings ? 'open mb-2' : ''}`}>
                         <div className={`${card} border rounded-xl overflow-hidden shadow-lg text-sm`}>
                             <div className={`px-4 py-3 border-b ${dark ? 'border-slate-700/50 bg-gradient-to-r from-slate-900/30 to-slate-900/10' : 'border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100/50'} flex items-center justify-between`}>
                                 <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(15 * scale)}px` }}>📋 Core Architecture &amp; Setup</h3>
@@ -1788,14 +1788,14 @@
                         </div>
                     )}
 
-                    {/* Table View Component */}
-                    {videos && !loading && (
-                        <div className="space-y-6 animate-fade-in">
-                            <div className={`${card} border rounded-xl overflow-hidden shadow-lg`}>
+                    {/* Table View Component: always the same card, empty (no rows) until a channel is loaded */}
+                    {!loading && (
+                        <div className="flex-1 min-h-64 flex flex-col animate-fade-in">
+                            <div className={`${card} border rounded-xl overflow-hidden shadow-lg flex-1 min-h-0 flex flex-col`}>
                                 <div className={`px-4 py-3 bg-gradient-to-r ${dark ? 'from-slate-900/30 to-slate-900/10' : 'from-slate-50 to-slate-100/50'} flex items-center justify-between gap-4`}>
                                     <div className="min-w-0 flex flex-wrap items-baseline gap-x-2">
                                         <h3 className="font-bold text-emerald-500" style={{ fontSize: `${Math.round(16 * scale)}px` }}>
-                                            {processedVideos.length} / {videos.length}
+                                            {processedVideos.length} / {(videos || []).length}
                                         </h3>
                                         {isGoogleReady && currentHandle && (
                                             <div className="text-[10px] text-emerald-400">
@@ -1814,7 +1814,7 @@
                                 </div>
 
                                 {/* Desktop Table */}
-                                <div className={`inventory-desktop overflow-x-auto ${scCls}`}>
+                                <div className={`inventory-desktop flex-1 min-h-0 overflow-auto ${scCls}`}>
                                     <table className="w-full text-left border-collapse" style={{ fontSize: tblFs }}>
                                         <thead>
                                         <tr className={dark ? 'text-slate-400' : 'text-slate-500'}>
@@ -1904,9 +1904,9 @@
                                                 </tr>
                                             );
                                         })}
-                                        {processedVideos.length === 0 && (
+                                        {processedVideos.length === 0 && (videos ? videos.length > 0 : !error) && (
                                             <tr>
-                                                <td colSpan="6" className={`text-center py-12 ${mt}`}>No data matched the current column filters.</td>
+                                                <td colSpan="6" className={`text-center py-12 text-xs ${mt}`}>{videos ? 'No data matched the current column filters.' : 'Paste your YouTube API Key + Google OAuth Client ID in Settings to start. Connect Google → data is synced per channel tab across devices.'}</td>
                                             </tr>
                                         )}
                                         </tbody>
@@ -1914,7 +1914,7 @@
                                 </div>
 
                                 {/* Mobile Cards — compact icons instead of large action buttons */}
-                                <div className="inventory-mobile p-3 space-y-2">
+                                <div className={`inventory-mobile flex-1 min-h-0 overflow-auto p-3 space-y-2 ${scCls}`}>
                                     <div className="pb-1 flex gap-2">
                                         <input type="text" placeholder="Filter Name..." title={`Filter by Name. ${FILTER_HELP}`} value={filters.name} onChange={e => handleFilterChange('name', e.target.value)} className={`flex-1 min-w-0 px-3 py-2 text-xs rounded border ${inpFilter}`} />
                                         <input type="text" placeholder="Filter Status..." title={`Filter by Status. ${FILTER_HELP}`} value={filters.status} onChange={e => handleFilterChange('status', e.target.value)} className={`w-28 px-3 py-2 text-xs rounded border ${inpFilter}`} />
@@ -2002,16 +2002,9 @@
                     )}
 
                     {loading && (
-                        <div className={`text-center py-20 ${mt} flex items-center justify-center gap-3`}>
+                        <div className={`flex-1 min-h-64 ${card} border rounded-xl shadow-lg flex items-center justify-center gap-3 ${mt}`}>
                             <div className="animate-spin h-5 w-5 border-2 border-emerald-500 border-t-transparent rounded-full"/>
                             {gsSyncing ? 'Syncing with Google Sheets...' : 'Synchronizing with YouTube API...'}
-                        </div>
-                    )}
-
-                    {!loading && !videos && !error && (
-                        <div className={`text-center py-20 ${mt}`}>
-                            <p className="text-lg">Paste your YouTube API Key + Google OAuth Client ID in Settings to start.</p>
-                            <p className="text-xs mt-2">Connect Google → data is automatically synced per channel tab across devices.</p>
                         </div>
                     )}
                 </div>
