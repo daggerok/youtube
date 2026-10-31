@@ -110,6 +110,19 @@
 <body class="min-h-screen">
 <div id="root"></div>
 
+<script id="theme-utils">
+    // Theme modes of the toolbar button: light, dark, or auto = by the local clock (dark from 19:00 to 07:00). Same in daggerok/twitter.
+    const THEME_MODES = ['light', 'dark', 'auto'];
+    const isThemeMode = v => THEME_MODES.includes(v);
+    // night by the browser's local clock: 19:00 to 06:59
+    const isNight = (d = new Date()) => { const h = d.getHours(); return h >= 19 || h < 7; };
+    // a click cycles light -> dark -> auto -> light
+    const nextThemeMode = m => (m === 'light' ? 'dark' : m === 'dark' ? 'auto' : 'light');
+    const isDarkTheme = (m, night) => (m === 'auto' ? night : m === 'dark');
+    // the button: light and dark show the icon of the other theme (a sun on the dark page); auto shows the current one with an A
+    const themeIcon = (m, night) => (m === 'auto' ? { icon: night ? '🌙' : '☀', auto: true } : { icon: m === 'dark' ? '☀' : '🌙', auto: false });
+    const themeTitle = (m, night) => (m === 'light' ? 'Light theme. Click: dark theme' : m === 'dark' ? 'Dark theme. Click: automatic theme (dark from 19:00 to 07:00 by your clock, light by day)' : `Automatic theme, now ${night ? 'night: dark' : 'day: light'}. Click: light theme`);
+</script>
 <script id="filter-utils">
     // Shared by every desktop and mobile column filter.
     // OR separates alternatives; * and & join literal phrases in occurrence order.
@@ -539,7 +552,16 @@
         const [channelUrl, setChannelUrl] = useState(prefs.channelUrl || 'https://www.youtube.com/@InnerCircleTrader');
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState(null);
-        const [dark, setDark] = useState(prefs.dark !== false);
+        const [themeMode, setThemeMode] = useState(isThemeMode(prefs.themeMode) ? prefs.themeMode : (prefs.dark !== false ? 'dark' : 'light'));
+        const [night, setNight] = useState(() => isNight());
+        const dark = isDarkTheme(themeMode, night);
+        useEffect(() => {
+            if (themeMode !== 'auto') return undefined;
+            const tick = () => setNight(isNight());
+            tick();
+            const t = setInterval(tick, 60000);
+            return () => clearInterval(t);
+        }, [themeMode]);
         const [scaleSlider, setScaleSlider] = useState(prefs.scaleSlider ?? DEFAULT_SCALE_SLIDER);
 
         const [videos, setVideos] = useState(null);
@@ -632,8 +654,8 @@
 
         // Save prefs (extended)
         useEffect(() => {
-            sp({ apiKey, channelUrl, dark, scaleSlider, sortConfig, filters });
-        }, [apiKey, channelUrl, dark, scaleSlider, sortConfig, filters]);
+            sp({ apiKey, channelUrl, dark, themeMode, scaleSlider, sortConfig, filters });
+        }, [apiKey, channelUrl, dark, themeMode, scaleSlider, sortConfig, filters]);
 
         // Save Google config
         useEffect(() => {
@@ -1657,8 +1679,8 @@
                                     📥
                                 </button>
 
-                                <button onClick={() => setDark(!dark)} title={dark ? "Switch to light mode" : "Switch to dark mode"} className={`${tbBtn} ${dark ? 'text-yellow-400 hover:text-yellow-300 hover:bg-slate-800' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}>
-                                    {dark ? '☀' : '🌙'}
+                                <button onClick={() => setThemeMode(m => nextThemeMode(m))} title={themeTitle(themeMode, night)} data-theme-mode={themeMode} className={`${tbBtn} ${dark ? 'text-yellow-400 hover:text-yellow-300 hover:bg-slate-800' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}>
+                                    <span className="relative inline-flex">{themeIcon(themeMode, night).icon}{themeIcon(themeMode, night).auto && <span className="absolute -top-1.5 -right-2 text-[8px] font-bold leading-none" data-auto>A</span>}</span>
                                 </button>
                             </div>
                         </div>
