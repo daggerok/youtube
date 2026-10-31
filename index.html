@@ -1641,25 +1641,17 @@
                                     🔄
                                 </button>
 
-                                {gsConfig.clientId && (
-                                    <>
-                                        {!isGoogleAuthed ? (
-                                            <button onClick={handleGsConnect} disabled={gsSyncing} title="Connect Google Sheets" className={`${tbBtn} text-blue-400 hover:bg-blue-500/20`}>☁️</button>
-                                        ) : (
-                                            <button onClick={handleGsDisconnect} disabled={gsSyncing} title="Disconnect Google" className={`${tbBtn} text-rose-400 hover:bg-rose-500/20`}>🔌</button>
-                                        )}
-                                        {isGoogleReady && (
-                                            <button
-                                                onClick={handleGsAttach}
-                                                disabled={gsSyncing}
-                                                title="Ensure tab & reload from Google Sheets"
-                                                className={`${tbBtn} text-emerald-400 hover:bg-emerald-500/20`}
-                                            >
-                                                ↻
-                                            </button>
-                                        )}
-                                    </>
-                                )}
+                                {/* every button is always there (no toolbar jumps): disabled when it makes no sense right now */}
+                                <button onClick={handleGsConnect} disabled={gsSyncing || isGoogleAuthed || !gsConfig.clientId} title={gsConfig.clientId ? (isGoogleAuthed ? 'Google Sheets connected' : 'Connect Google Sheets') : 'Connect Google Sheets (paste the Client ID in Settings first)'} className={`${tbBtn} text-blue-400 hover:bg-blue-500/20`}>☁️</button>
+                                <button onClick={handleGsDisconnect} disabled={gsSyncing || !isGoogleAuthed} title={isGoogleAuthed ? 'Disconnect Google' : 'Disconnect Google (not connected)'} className={`${tbBtn} text-rose-400 hover:bg-rose-500/20`}>🔌</button>
+                                <button
+                                    onClick={handleGsAttach}
+                                    disabled={gsSyncing || !isGoogleReady}
+                                    title={isGoogleReady ? 'Ensure tab & reload from Google Sheets' : 'Ensure tab & reload from Google Sheets (connect Google and set the spreadsheet first)'}
+                                    className={`${tbBtn} text-emerald-400 hover:bg-emerald-500/20`}
+                                >
+                                    ↻
+                                </button>
 
                                 <button onClick={handleExportCSV} disabled={!videos || videos.length === 0} title="Export CSV" className={`${tbBtn} ${dark ? 'hover:bg-slate-800 text-emerald-400' : 'hover:bg-slate-100 text-emerald-600'}`}>
                                     📥
